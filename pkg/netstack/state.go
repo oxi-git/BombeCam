@@ -33,14 +33,28 @@ const (
 
 // PersistedState is stored in state.json.
 type PersistedState struct {
-	BlockCloudVideo  bool      `json:"block_cloud_video"`
-	Region           string    `json:"region,omitempty"`
+	BlockCloudVideo  bool     `json:"block_cloud_video"`
+	Region           string   `json:"region,omitempty"`
+	Cameras          []string `json:"cameras,omitempty"`
+	BlockStreamSetup bool     `json:"block_stream_setup,omitempty"`
+	// ConfigSaved says the file was written by a version that persists the
+	// runtime configuration, so a false BlockStreamSetup is a saved choice
+	// and not simply a missing field.
+	ConfigSaved      bool      `json:"config_saved,omitempty"`
 	Status           string    `json:"status"`
 	RulesetHash      string    `json:"ruleset_hash"`
 	LastTransition   time.Time `json:"last_transition"`
 	UpdatedAt        time.Time `json:"updated_at"`
 	EnforcementPoint string    `json:"enforcement_point"`
 	Notes            string    `json:"notes,omitempty"`
+}
+
+// StateOptions is the configuration persisted alongside the ruleset.
+type StateOptions struct {
+	Block            bool
+	Region           policy.Region
+	Cameras          []string
+	BlockStreamSetup bool
 }
 
 // StateManager handles atomic persistence and fail-closed restore.
@@ -65,8 +79,8 @@ func NewStateManager(stateDir string) *StateManager {
 	}
 }
 
-// Persist atomically writes the setting, ruleset and metadata.
-func (sm *StateManager) Persist(block bool, region policy.Region, ruleset string, status string) error {
+// Persist atomically writes the setting, ruleset, configuration and metadata.
+func (sm *StateManager) Persist(opts StateOptions, ruleset string, status string) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if err := os.MkdirAll(sm.StateDir, 0o750); err != nil {
@@ -81,15 +95,18 @@ func (sm *StateManager) Persist(block bool, region policy.Region, ruleset string
 		status = StatusRulesLoaded
 	}
 	val := "no\n"
-	if block {
+	if opts.Block {
 		val = "yes\n"
 	}
 	if err := atomicWriteFile(sm.SettingFile, []byte(val), 0o640); err != nil {
 		return fmt.Errorf("write setting: %w", err)
 	}
 	data, err := json.MarshalIndent(PersistedState{
-		BlockCloudVideo:  block,
-		Region:           string(region.OrDefault()),
+		BlockCloudVideo:  opts.Block,
+		Region:           string(opts.Region.OrDefault()),
+		Cameras:          opts.Cameras,
+		BlockStreamSetup: opts.BlockStreamSetup,
+		ConfigSaved:      true,
 		Status:           status,
 		RulesetHash:      hash,
 		LastTransition:   now,
