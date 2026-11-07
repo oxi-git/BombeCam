@@ -40,7 +40,7 @@ func TestPrivacyUIStructure(t *testing.T) {
 	if n := strings.Count(html, `id="privacy-master"`); n != 1 || !strings.Contains(html, "Block all cameras") {
 		t.Errorf("expected one Block all cameras switch, found %d", n)
 	}
-	if !regexp.MustCompile(`class="privacy-hardware">\s*<strong>Needs:</strong> a GL\.iNet or OpenWrt router`).MatchString(html) ||
+	if !regexp.MustCompile(`class="privacy-hardware">\s*<strong>Needs:</strong>\s*<span id="privacy-hardware-text">a GL\.iNet or OpenWrt router`).MatchString(html) ||
 		!strings.Contains(html, `href="/blocking-options.html"`) {
 		t.Error("the hardware notice and the link to the other-ways page must be on the tab")
 	}
@@ -73,6 +73,38 @@ func TestPrivacyUIStructure(t *testing.T) {
 	} {
 		if !strings.Contains(html, must) {
 			t.Errorf("How it works should mention %q", must)
+		}
+	}
+}
+
+// The Firewall tab lets the user choose where the firewall runs: the router
+// over SSH or the bombecam-net daemon on this computer.
+func TestPrivacyBackendUI(t *testing.T) {
+	html := readAsset(t, "index.html")
+	js := readAsset(t, "app.js")
+	for _, id := range []string{`id="privacy-backend"`, `id="privacy-backend-detail"`} {
+		if !strings.Contains(html, id) {
+			t.Errorf("index.html lacks %s", id)
+		}
+	}
+	if !strings.Contains(html, `<option value="local">This computer (bombecam-net)</option>`) {
+		t.Error("the backend selector must offer the local daemon")
+	}
+	for _, api := range []string{
+		"/api/v1/privacy/backend", "/api/v1/privacy/region", "/api/v1/privacy/check",
+		"/api/v1/privacy/camera", "/api/v1/privacy/block-all",
+		"/api/v1/privacy/router/connect", "/api/v1/privacy/router/disconnect",
+	} {
+		if !strings.Contains(js, api) {
+			t.Errorf("app.js does not use %s", api)
+		}
+	}
+	if !strings.Contains(html, `id="privacy-region"`) {
+		t.Error("index.html must expose the Osaio region next to the backend selector")
+	}
+	for _, id := range []string{`id="privacy-how-local"`, `id="privacy-hardware-text"`} {
+		if !strings.Contains(html, id) {
+			t.Errorf("index.html lacks %s", id)
 		}
 	}
 }

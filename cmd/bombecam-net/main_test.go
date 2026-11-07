@@ -1,8 +1,16 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
+
+	"github.com/Fever-r/BombeCam/pkg/netstack"
+	"github.com/Fever-r/BombeCam/pkg/policy"
 )
 
 func TestGetEnvOrDefault(t *testing.T) {
@@ -116,3 +124,189 @@ func TestCameraEntries(t *testing.T) {
 		t.Fatalf("flags must win over env: %v", got)
 	}
 }
+
+func TestConfigRequestMerge(t *testing.T) {
+	cur := configValues{
+		Block:            false,
+		Cameras:          []string{"aa:bb:cc:dd:ee:01"},
+		Region:           policy.RegionUS,
+		BlockStreamSetup: false,
+	}
+	// Omitted fields keep their current value.
+	got, err := configRequest{}.merge(cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Block || got.Region != policy.RegionUS || got.BlockStreamSetup ||
+		len(got.Cameras) != 1 || got.Cameras[0] != "aa:bb:cc:dd:ee:01" {
+		t.Fatalf("omitted fields changed: %+v", got)
+	}
+
+	block := true
+	region := "eu"
+	setup := true
+	cameras := []string{"AA:BB:CC:DD:EE:02"}
+	got, err = configRequest{
+		BlockCloudVideo:  &block,
+		Cameras:          &cameras,
+		Region:           &region,
+		BlockStreamSetup: &setup,
+	}.merge(cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Block || got.Region != policy.RegionEU || !got.BlockStreamSetup || got.Cameras[0] != "AA:BB:CC:DD:EE:02" {
+		t.Fatalf("request not applied: %+v", got)
+	}
+
+	if _, err := (configRequest{Region: strPtr("mars")}).merge(cur); err == nil {
+		t.Fatal("invalid region accepted")
+	}
+	empty := []string{}
+	// With blocking off there is nothing to protect, so an empty list keeps
+	// the current one (the gateway sends it when no camera is chosen).
+	got, err = configRequest{Cameras: &empty}.merge(cur)
+	if err != nil {
+		t.Fatalf("empty camera list with blocking off: %v", err)
+	}
+	if len(got.Cameras) != 1 || got.Cameras[0] != "aa:bb:cc:dd:ee:01" {
+		t.Fatalf("empty list must keep the current cameras: %+v", got)
+	}
+	on := true
+	if _, err := (configRequest{BlockCloudVideo: &on, Cameras: &empty}).merge(cur); err == nil {
+		t.Fatal("empty camera list accepted while blocking is on")
+	}
+}
+
+func TestHandleNetConfig(t *testing.T) {
+	newTestManager := func() *netstack.RulesetManager {
+		m, err := netstack.NewRulesetManager(netstack.RulesetConfig{
+			Cameras: []string{"Front=aa:bb:cc:dd:ee:01"},
+			Region:  policy.RegionUS,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+
+	t.Run("invalid region is a request error", func(t *testing.T) {
+		m := newTestManager()
+		applied := false
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/net/config",
+			strings.NewReader(`{"region":"mars"}`))
+		handleNetConfig(rec, req, m, &sync.Mutex{}, func(bool) error {
+			applied = true
+			return nil
+		}, func() map[string]any { return statusPayload(m) })
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body)
+		}
+		if applied {
+			t.Fatal("apply ran for an invalid request")
+		}
+		var body map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["error"] != "invalid_request" || body["message"] == "" {
+			t.Fatalf("body = %v", body)
+		}
+		if m.Region() != policy.RegionUS {
+			t.Fatalf("failed request changed the region to %s", m.Region())
+		}
+	})
+
+	t.Run("malformed MAC is a request error", func(t *testing.T) {
+		m := newTestManager()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/net/config",
+			strings.NewReader(`{"cameras":["not-a-mac"]}`))
+		handleNetConfig(rec, req, m, &sync.Mutex{}, func(bool) error {
+			t.Fatal("apply ran for an invalid request")
+			return nil
+		}, func() map[string]any { return statusPayload(m) })
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("valid request reconfigures and applies", func(t *testing.T) {
+		m := newTestManager()
+		var appliedBlock bool
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/net/config",
+			strings.NewReader(`{"region":"eu","cameras":["AA:BB:CC:DD:EE:02"],"block_stream_setup":true}`))
+		handleNetConfig(rec, req, m, &sync.Mutex{}, func(block bool) error {
+			appliedBlock = block
+			return nil
+		}, func() map[string]any { return statusPayload(m) })
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+		}
+		if appliedBlock {
+			t.Fatal("apply did not keep the current block setting")
+		}
+		if m.Region() != policy.RegionEU || !m.BlockStreamSetupEnabled() {
+			t.Fatalf("manager not reconfigured: region=%s streamSetup=%v", m.Region(), m.BlockStreamSetupEnabled())
+		}
+		if got := m.CameraMACs(); len(got) != 1 || got[0] != "aa:bb:cc:dd:ee:02" {
+			t.Fatalf("cameras = %v", got)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["region"] != "eu" || body["block_stream_setup"] != true {
+			t.Fatalf("status payload = %v", body)
+		}
+		if cams, _ := body["cameras"].([]any); len(cams) != 1 || cams[0] != "aa:bb:cc:dd:ee:02" {
+			t.Fatalf("status cameras = %v", body["cameras"])
+		}
+	})
+
+	t.Run("apply failure is a server error", func(t *testing.T) {
+		m := newTestManager()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/net/config",
+			strings.NewReader(`{"block_cloud_video":true}`))
+		handleNetConfig(rec, req, m, &sync.Mutex{}, func(bool) error {
+			return os.ErrPermission
+		}, func() map[string]any { return statusPayload(m) })
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500 (body %s)", rec.Code, rec.Body)
+		}
+		var body map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["error"] != "apply_failed" {
+			t.Fatalf("body = %v", body)
+		}
+	})
+}
+
+func TestStatusPayloadIncludesConfig(t *testing.T) {
+	m, err := netstack.NewRulesetManager(netstack.RulesetConfig{
+		Cameras:          []string{"Back=AA:BB:CC:DD:EE:03"},
+		Region:           policy.RegionEU,
+		BlockStreamSetup: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := statusPayload(m)
+	if got["region"] != "eu" || got["block_stream_setup"] != true {
+		t.Fatalf("payload = %v", got)
+	}
+	if cams, _ := got["cameras"].([]string); len(cams) != 1 || cams[0] != "aa:bb:cc:dd:ee:03" {
+		t.Fatalf("cameras = %v", got["cameras"])
+	}
+}
+
+func strPtr(s string) *string { return &s }

@@ -280,15 +280,19 @@ Flags:
   --api-host/--api-port local REST API (default 127.0.0.1:8653)`)
 }
 
-func newManager(o options) *netstack.RulesetManager {
-	m, err := netstack.NewRulesetManager(netstack.RulesetConfig{
+func managerConfig(o options) netstack.RulesetConfig {
+	return netstack.RulesetConfig{
 		Cameras:          cameraEntries(o.cameras),
 		BlockStreamSetup: o.blockSetup,
 		Region:           parseRegion(o.region),
 		EnableMasq:       o.masq,
 		WANInterface:     o.wanIf,
 		CameraSubnet:     o.cameraSubnet,
-	})
+	}
+}
+
+func newManager(o options) *netstack.RulesetManager {
+	m, err := netstack.NewRulesetManager(managerConfig(o))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[!] %v\n", err)
 		os.Exit(1)
@@ -333,7 +337,12 @@ func runSetBlock(o options, block bool) {
 	if err := m.Apply(block); err != nil {
 		fmt.Fprintf(os.Stderr, "[!] could not apply Block cloud video = %s: %v\n", yesNo(block), err)
 		if block {
-			_ = sm.Persist(true, m.Region(), "", netstack.StatusDegradedFailClosed)
+			_ = sm.Persist(netstack.StateOptions{
+				Block:            true,
+				Region:           m.Region(),
+				Cameras:          m.CameraMACs(),
+				BlockStreamSetup: m.BlockStreamSetupEnabled(),
+			}, "", netstack.StatusDegradedFailClosed)
 			fmt.Fprintln(os.Stderr, "    Nothing was changed in the kernel; the camera is NOT protected.")
 		}
 		os.Exit(1)
@@ -343,7 +352,12 @@ func runSetBlock(o options, block bool) {
 	if !block {
 		status = netstack.StatusRemoved
 	}
-	if err := sm.Persist(block, m.Region(), m.LastRendered, status); err != nil {
+	if err := sm.Persist(netstack.StateOptions{
+		Block:            block,
+		Region:           m.Region(),
+		Cameras:          m.CameraMACs(),
+		BlockStreamSetup: m.BlockStreamSetupEnabled(),
+	}, m.LastRendered, status); err != nil {
 		fmt.Fprintf(os.Stderr, "[!] rules applied but the setting could not be saved: %v\n", err)
 		os.Exit(1)
 	}
@@ -364,15 +378,35 @@ func runStatus(o options) {
 	if out, lerr := exec.Command("nft", "list", "table", "inet", "bombecam").CombinedOutput(); lerr == nil {
 		loaded = strings.Contains(string(out), "chain camera_out")
 	}
+	// Report the saved configuration; before the first write, say what the
+	// flags would use.
+	cameras := state.Cameras
+	if len(cameras) == 0 {
+		for _, e := range cameraEntries(o.cameras) {
+			mac := e
+			if k := strings.LastIndex(e, "="); k >= 0 {
+				mac = e[k+1:]
+			}
+			if c := policy.CanonicalMAC(mac); c != "" {
+				cameras = append(cameras, c)
+			}
+		}
+	}
+	blockSetup := state.BlockStreamSetup
+	if !state.ConfigSaved {
+		blockSetup = o.blockSetup
+	}
 	out := map[string]any{
-		"block_cloud_video": block,
-		"region":            regionString(state, o.region),
-		"rules_loaded":      loaded,
-		"state_status":      state.Status,
-		"ruleset_hash":      state.RulesetHash,
-		"updated_at":        state.UpdatedAt,
-		"notes":             state.Notes,
-		"nat":               netstack.NewNATManager(o.cameraIf, o.cameraSubnet, o.wanIf).GetStatus(),
+		"block_cloud_video":  block,
+		"region":             regionString(state, o.region),
+		"cameras":            cameras,
+		"block_stream_setup": blockSetup,
+		"rules_loaded":       loaded,
+		"state_status":       state.Status,
+		"ruleset_hash":       state.RulesetHash,
+		"updated_at":         state.UpdatedAt,
+		"notes":              state.Notes,
+		"nat":                netstack.NewNATManager(o.cameraIf, o.cameraSubnet, o.wanIf).GetStatus(),
 	}
 	if err != nil {
 		out["read_error"] = err.Error()
@@ -381,15 +415,154 @@ func runStatus(o options) {
 	fmt.Println(string(data))
 }
 
+// configValues is the daemon's changing configuration.
+type configValues struct {
+	Block            bool
+	Cameras          []string
+	Region           policy.Region
+	BlockStreamSetup bool
+}
+
+// configRequest is the body of POST /api/v1/net/config. Omitted fields keep
+// their current value; cameras replaces the whole list.
+type configRequest struct {
+	BlockCloudVideo  *bool     `json:"block_cloud_video"`
+	Cameras          *[]string `json:"cameras"`
+	Region           *string   `json:"region"`
+	BlockStreamSetup *bool     `json:"block_stream_setup"`
+}
+
+// merge returns the configuration the request asks for. It rejects an empty
+// camera list and an unknown region; camera MACs are validated by
+// Reconfigure.
+func (req configRequest) merge(cur configValues) (configValues, error) {
+	out := cur
+	if req.BlockCloudVideo != nil {
+		out.Block = *req.BlockCloudVideo
+	}
+	if req.Cameras != nil {
+		if len(*req.Cameras) == 0 {
+			// Nothing to block: the list is irrelevant while blocking is off,
+			// so keep the current one for when blocking comes back on.
+			if out.Block {
+				return configValues{}, fmt.Errorf("cameras must not be empty while block_cloud_video is on")
+			}
+			out.Cameras = cur.Cameras
+		} else {
+			out.Cameras = *req.Cameras
+		}
+	}
+	if req.Region != nil {
+		region, err := policy.ParseRegion(*req.Region)
+		if err != nil {
+			return configValues{}, err
+		}
+		out.Region = region
+	}
+	if req.BlockStreamSetup != nil {
+		out.BlockStreamSetup = *req.BlockStreamSetup
+	}
+	return out, nil
+}
+
+// statusPayload is the JSON body of GET /api/v1/net/status and of a successful
+// POST /api/v1/net/config.
+func statusPayload(m *netstack.RulesetManager) map[string]any {
+	on, applied := m.Active()
+	resolved := map[string][]string{}
+	for h, ips := range m.Resolved() {
+		for _, ip := range ips {
+			resolved[h] = append(resolved[h], ip.String())
+		}
+	}
+	return map[string]any{
+		"block_cloud_video":  on,
+		"applied":            applied,
+		"ruleset_hash":       m.GetLastHash(),
+		"allowed_addresses":  resolved,
+		"headline":           policy.Headline,
+		"os":                 runtime.GOOS,
+		"region":             string(m.Region()),
+		"cameras":            m.CameraMACs(),
+		"block_stream_setup": m.BlockStreamSetupEnabled(),
+	}
+}
+
+func writeAPIError(w http.ResponseWriter, code int, kind, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": kind, "message": message})
+}
+
+// handleNetConfig serves POST /api/v1/net/config. It does not authenticate;
+// the daemon wraps it with checkAuth. mu is held across reconfigure, apply
+// and persist so two requests cannot interleave; applyLocked must not lock mu.
+func handleNetConfig(w http.ResponseWriter, r *http.Request, m *netstack.RulesetManager, mu *sync.Mutex,
+	applyLocked func(bool) error, status func() map[string]any) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var req configRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	mu.Lock()
+	cur := configValues{
+		Cameras:          m.CameraMACs(),
+		Region:           m.Region(),
+		BlockStreamSetup: m.BlockStreamSetupEnabled(),
+	}
+	cur.Block, _ = m.Active()
+	next, err := req.merge(cur)
+	if err != nil {
+		mu.Unlock()
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	// Reconfigure only validates, so a bad MAC is a request error, not an
+	// apply failure.
+	if err := m.Reconfigure(next.Cameras, next.Region, next.BlockStreamSetup); err != nil {
+		mu.Unlock()
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if err := applyLocked(next.Block); err != nil {
+		// The kernel still has the previous rules: put the manager back so
+		// its reported configuration matches what is actually applied.
+		_ = m.Reconfigure(cur.Cameras, cur.Region, cur.BlockStreamSetup)
+		mu.Unlock()
+		writeAPIError(w, http.StatusInternalServerError, "apply_failed", err.Error())
+		return
+	}
+	mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(status())
+}
+
 // runDaemon keeps the saved setting applied: it restores it at boot (a missing
 // or corrupt setting restores Yes), re-resolves the allowed host names every
 // 10 minutes, and serves a small local API.
 func runDaemon(o options) {
-	m := newManager(o)
+	// Restore before constructing the manager: the cameras, region and
+	// stream-setup choice saved by an earlier run win over the flags.
 	sm := netstack.NewStateManager(o.stateDir)
 	block, state, err := sm.RestoreOnBoot()
 	if err != nil {
 		fmt.Printf("[-] %v\n", err)
+	}
+	cfg := managerConfig(o)
+	if len(state.Cameras) > 0 {
+		cfg.Cameras = state.Cameras
+	}
+	cfg.Region = parseRegion(regionString(state, o.region))
+	// state.json from a version that persists the runtime configuration wins
+	// over the flags; an older file (no config_saved) keeps the flag.
+	if err == nil && state.ConfigSaved {
+		cfg.BlockStreamSetup = state.BlockStreamSetup
+	}
+	m, merr := netstack.NewRulesetManager(cfg)
+	if merr != nil {
+		fmt.Fprintf(os.Stderr, "[!] %v\n", merr)
+		os.Exit(1)
 	}
 	fmt.Printf("[+] BombeCam camera firewall daemon. Saved setting: Block cloud video = %s (%s)\n", yesNo(block), state.Status)
 	if state.Notes != "" {
@@ -397,9 +570,20 @@ func runDaemon(o options) {
 	}
 
 	var mu sync.Mutex
-	apply := func(b bool) error {
-		mu.Lock()
-		defer mu.Unlock()
+
+	// persistLocked writes the setting, ruleset and the manager's current
+	// configuration. Caller holds mu.
+	persistLocked := func(b bool, status string) error {
+		return sm.Persist(netstack.StateOptions{
+			Block:            b,
+			Region:           m.Region(),
+			Cameras:          m.CameraMACs(),
+			BlockStreamSetup: m.BlockStreamSetupEnabled(),
+		}, m.LastRendered, status)
+	}
+
+	// applyLocked applies the setting and persists it. Caller holds mu.
+	applyLocked := func(b bool) error {
 		if b {
 			resolveNow(m)
 		}
@@ -411,8 +595,15 @@ func runDaemon(o options) {
 		if !b {
 			status = netstack.StatusRemoved
 		}
-		return sm.Persist(b, m.Region(), m.LastRendered, status)
+		return persistLocked(b, status)
 	}
+
+	apply := func(b bool) error {
+		mu.Lock()
+		defer mu.Unlock()
+		return applyLocked(b)
+	}
+
 	if err := apply(block); err != nil {
 		fmt.Fprintf(os.Stderr, "[!] FATAL: could not apply Block cloud video = %s: %v\n", yesNo(block), err)
 		os.Exit(1)
@@ -434,7 +625,7 @@ func runDaemon(o options) {
 					if err := m.Apply(true); err != nil {
 						fmt.Printf("[-] re-apply after address change failed: %v\n", err)
 					} else {
-						_ = sm.Persist(true, m.Region(), m.LastRendered, netstack.StatusRulesLoaded)
+						_ = persistLocked(true, netstack.StatusRulesLoaded)
 						fmt.Println("[+] allowlisted addresses changed; rules re-applied")
 					}
 				}
@@ -459,22 +650,18 @@ func runDaemon(o options) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/net/status", func(w http.ResponseWriter, r *http.Request) {
-		on, applied := m.Active()
-		resolved := map[string][]string{}
-		for h, ips := range m.Resolved() {
-			for _, ip := range ips {
-				resolved[h] = append(resolved[h], ip.String())
-			}
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"block_cloud_video": on,
-			"applied":           applied,
-			"ruleset_hash":      m.GetLastHash(),
-			"allowed_addresses": resolved,
-			"headline":          policy.Headline,
-			"os":                runtime.GOOS,
-		})
+		_ = json.NewEncoder(w).Encode(statusPayload(m))
+	})
+	mux.HandleFunc("/api/v1/net/config", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(w, r) {
+			return
+		}
+		handleNetConfig(w, r, m, &mu, applyLocked, func() map[string]any { return statusPayload(m) })
 	})
 	mux.HandleFunc("/api/v1/net/block-cloud-video", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
