@@ -6,13 +6,18 @@ Block cloud video puts rules on the router your cameras connect to. For each blo
 
 Osaio can still see that the camera is online, your internet (IP) address, and which commands are sent to it.
 
+## Where it runs
+
+The firewall rules can run in one of two places, chosen under **Where the firewall runs** on the Firewall tab: on the **router** (OpenWrt or GL.iNet, applied over SSH) or on **this computer**, through the bombecam-net local daemon (`http://127.0.0.1:8653`). Only the active backend is shown as truth; the other backend's saved state is not reported as what is currently blocking. Switching backends applies your saved camera choices on the newly selected one.
+
 ## Requirements
 
 - **Router:** a GL.iNet router on firmware 4.x, or OpenWrt 21.02 or newer, in **Router** mode (not access point, extender or WDS mode). Both OpenWrt firewalls are supported: fw4 (nftables) and fw3 (iptables). Which one a router uses depends on the model; the script detects it.
+- **Or a Linux machine on the cameras' path** for the local backend: a box running the `bombecam-net` daemon with nftables, for example Home Assistant OS with the `firewall` service from the BombeCam compose file. No SSH or OpenWrt is involved.
 - **The cameras connect to that router** (its Wi-Fi or LAN). If your main router comes from your internet provider, a small GL.iNet travel router in Router mode can host the cameras.
 - **SSH access** as `root` with the router's admin password. GL.iNet has SSH on by default.
 - **Each camera's MAC address.** BombeCam learns it when the camera first streams to it and shows it in the Firewall tab. On the router, `bombecam-router clients` lists DHCP clients.
-- **The Osaio region of your account.** The allowlist names one region's control and stream-setup servers: US (`mqtts02-us.osaio.net`, `wss-us.osaio.net`) or EU (`mqtts-eu.osaio.net`, `mqtts01-eu.osaio.net`, `wss-eu.osaio.net`). Pick it under **Connect router → Advanced → Osaio region**; US is the default. A camera enrolled in another region would lose its app controls while blocked, and BombeCam could not start new local streams.
+- **The Osaio region of your account.** The allowlist names one region's control and stream-setup servers: US (`mqtts02-us.osaio.net`, `wss-us.osaio.net`) or EU (`mqtts-eu.osaio.net`, `mqtts01-eu.osaio.net`, `wss-eu.osaio.net`). Pick it under **Firewall → Osaio region**; US is the default. A camera enrolled in another region would lose its app controls while blocked, and BombeCam could not start new local streams.
 
 ## What the router does
 
@@ -49,8 +54,10 @@ A phone or tablet on the same network as a blocked camera may still show its liv
 
 1. Open the **Firewall** tab. Each camera shows its MAC address once it has streamed.
 2. Press **Connect router**, enter the router address (GL.iNet default `192.168.8.1`) and the admin password, and press **Connect**.
-3. Turn on a camera's switch, or **Block all cameras**. BombeCam asks before it clears the camera's open connections. The chip changes to **Blocked on router** within a few seconds.
+3. Turn on a camera's switch, or **Block all cameras**. BombeCam asks before it clears the camera's open connections. The chip changes to **Blocked** within a few seconds.
 4. The result box shows the firewall type and any warnings; **Router output** shows the router's full report.
+
+With **Where the firewall runs → This computer** selected, skip **Connect router**: start the `bombecam-net` service, choose the backend and the Osaio region, then use the switches. **Check firewall** asks the daemon what it is blocking right now.
 
 **What connecting does.** BombeCam uses the password for that one SSH connection and never saves it. It installs the router script and adds its own SSH key to the router's `authorized_keys`, restricted like this:
 

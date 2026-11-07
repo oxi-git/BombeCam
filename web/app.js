@@ -2422,11 +2422,11 @@ async function stopTalkback() {
 // on and off, so the switches take effect right away. See "How it works".
 
 const PRIVACY_CHIPS = {
-  blocked: ['privacy-chip-ok', 'Blocked on router'],
+  blocked: ['privacy-chip-ok', 'Blocked'],
   not_blocked: ['privacy-chip-muted', 'Not blocked'],
   waiting_for_mac: ['privacy-chip-warn', 'Waiting for its network address'],
-  pending: ['privacy-chip-busy', 'Updating router...'],
-  not_applied: ['privacy-chip-warn', 'Not applied: connect router'],
+  pending: ['privacy-chip-busy', 'Applying...'],
+  not_applied: ['privacy-chip-warn', 'Not applied'],
 };
 
 async function refreshPrivacyStatus() {
@@ -2458,12 +2458,20 @@ function renderPrivacyBadge(data, failed) {
     short = 'No cameras';
     cls = 'badge-secondary';
   } else {
-    // Count what the router actually blocks, not just what was chosen.
+    // Count what the firewall actually blocks, not just what was chosen.
     const inForce = (data.cameras || []).filter(c => c.state === 'blocked').length;
+    const backend = data.backend === 'local' ? 'local' : 'router';
+    const local = data.local || {};
     if (!data.in_sync) {
-      text = 'Firewall: not applied yet';
-      short = 'Not applied yet';
-      cls = 'badge-warning';
+      if (backend === 'local' && local.reachable === false) {
+        text = 'Firewall: local firewall unreachable';
+        short = 'Local firewall unreachable';
+        cls = 'badge-error';
+      } else {
+        text = 'Firewall: not applied yet';
+        short = 'Not applied yet';
+        cls = 'badge-warning';
+      }
     } else if (inForce === data.camera_count) {
       text = 'Firewall: all cameras blocked';
       short = 'All blocked';
@@ -2495,11 +2503,65 @@ function renderPrivacy(data) {
   const headline = document.getElementById('privacy-headline');
   if (headline && data.headline) headline.textContent = data.headline;
   const router = data.router || {};
+  const backend = data.backend === 'local' ? 'local' : 'router';
+  const local = data.local || {};
+  const localUrl = local.url || '';
+  const localWhere = localUrl ? ` at ${localUrl}` : '';
 
-  // Router row
+  // Where the firewall runs. An older gateway sends neither field, and then
+  // the router is the only backend.
+  const backendSelect = document.getElementById('privacy-backend');
+  if (backendSelect) {
+    backendSelect.value = backend;
+    backendSelect.disabled = Boolean(state.privacyBusy);
+  }
+  const backendDetail = document.getElementById('privacy-backend-detail');
+  if (backendDetail) {
+    if (backend === 'local') {
+      const region = (data.region || 'us').toUpperCase();
+      if (!data.local) {
+        backendDetail.textContent = 'bombecam-net runs on this computer and applies the choices.';
+      } else if (local.reachable === false) {
+        backendDetail.textContent = `bombecam-net${localWhere} isn't reachable (${region} region). Start the firewall service.`;
+      } else {
+        const count = local.block_cloud_video ? (local.cameras || []).length : 0;
+        backendDetail.textContent = `bombecam-net${localWhere}: blocking ${count} camera(s) (${region} region).`;
+      }
+    } else {
+      backendDetail.textContent = 'Rules are applied on the router over SSH.';
+    }
+  }
+  const regionSelect = document.getElementById('privacy-region');
+  if (regionSelect) {
+    regionSelect.value = data.region === 'eu' ? 'eu' : 'us';
+    regionSelect.disabled = Boolean(state.privacyBusy);
+  }
+
+  // Requirements and "How it works" follow the active backend: the router
+  // instructions would be wrong on a local bombecam-net.
+  const hardware = document.getElementById('privacy-hardware-text');
+  if (hardware) {
+    hardware.textContent = backend === 'local'
+      ? 'a Linux machine running the bombecam-net firewall (for example Home Assistant OS) on the path your cameras use.'
+      : "a GL.iNet or OpenWrt router that your cameras connect to, set to Router mode. Most internet-provider routers can't do this.";
+  }
+  const howRouter = document.getElementById('privacy-how');
+  const howLocal = document.getElementById('privacy-how-local');
+  if (howRouter) howRouter.style.display = backend === 'local' ? 'none' : '';
+  if (howLocal) howLocal.style.display = backend === 'local' ? '' : 'none';
+
+  // Router row. In local mode it shows the local daemon instead of a router
+  // that isn't the active backend.
+  const rowTitle = document.querySelector('.privacy-router-info .option-section-title');
+  if (rowTitle) rowTitle.textContent = backend === 'local' ? 'Local firewall' : 'Router';
   const status = document.getElementById('privacy-router-status');
   if (status) {
-    if (router.connected) {
+    if (backend === 'local') {
+      const region = (data.region || 'us').toUpperCase();
+      status.textContent = data.local && local.reachable === false
+        ? `Not reachable (${region} region)`
+        : `bombecam-net (${region} region)`;
+    } else if (router.connected) {
       const region = (data.region || 'us').toUpperCase();
       status.innerHTML = `Connected: <strong>${escapeHtml(stripSSHPort(router.address))}</strong>` +
         (router.firewall ? ` <span class="text-muted">(OpenWrt ${escapeHtml(router.firewall)}, ${escapeHtml(region)} region)</span>` : ` <span class="text-muted">(${escapeHtml(region)} region)</span>`);
@@ -2510,20 +2572,34 @@ function renderPrivacy(data) {
     }
   }
   const connectBtn = document.getElementById('btn-privacy-connect');
-  if (connectBtn) {
-    connectBtn.style.display = router.connected && !router.script_outdated ? 'none' : '';
-    connectBtn.textContent = router.connected ? 'Update router' : (router.known ? 'Reconnect router' : 'Connect router');
-    connectBtn.disabled = Boolean(state.privacyBusy);
-  }
   const checkBtn = document.getElementById('btn-privacy-check');
-  if (checkBtn) {
-    checkBtn.style.display = router.connected ? '' : 'none';
-    checkBtn.disabled = Boolean(state.privacyBusy);
-  }
   const disconnectBtn = document.getElementById('btn-privacy-disconnect');
-  if (disconnectBtn) {
-    disconnectBtn.style.display = router.connected ? '' : 'none';
-    disconnectBtn.disabled = Boolean(state.privacyBusy);
+  if (backend === 'local') {
+    // The router is not in use: its controls would only mislead.
+    if (connectBtn) connectBtn.style.display = 'none';
+    if (disconnectBtn) disconnectBtn.style.display = 'none';
+    if (checkBtn) {
+      checkBtn.style.display = '';
+      checkBtn.textContent = 'Check firewall';
+      checkBtn.title = 'Ask the local firewall what it blocks right now';
+      checkBtn.disabled = Boolean(state.privacyBusy);
+    }
+  } else {
+    if (connectBtn) {
+      connectBtn.style.display = router.connected && !router.script_outdated ? 'none' : '';
+      connectBtn.textContent = router.connected ? 'Update router' : (router.known ? 'Reconnect router' : 'Connect router');
+      connectBtn.disabled = Boolean(state.privacyBusy);
+    }
+    if (checkBtn) {
+      checkBtn.style.display = router.connected ? '' : 'none';
+      checkBtn.textContent = 'Check router';
+      checkBtn.title = 'Ask the router what is in its firewall right now';
+      checkBtn.disabled = Boolean(state.privacyBusy);
+    }
+    if (disconnectBtn) {
+      disconnectBtn.style.display = router.connected ? '' : 'none';
+      disconnectBtn.disabled = Boolean(state.privacyBusy);
+    }
   }
 
   // One notice at a time, most important first.
@@ -2532,7 +2608,21 @@ function renderPrivacy(data) {
     let kind = '';
     let html = '';
     const err = data.last_error;
-    if (err && !data.in_sync) {
+    if (backend === 'local') {
+      if (data.local && local.reachable === false) {
+        kind = err ? 'alert-danger' : 'alert-info';
+        html = (err && err.message ? escapeHtml(err.message) + '<br>' : '') +
+          `The local firewall (bombecam-net)${localWhere} isn't reachable.` +
+          '<br><button type="button" class="btn btn-secondary btn-sm" data-privacy-check>Check again</button>';
+      } else if (!data.in_sync) {
+        kind = 'alert-info';
+        html = 'Your choices are saved but not applied to the local firewall yet.' +
+          '<br><button type="button" class="btn btn-secondary btn-sm" data-privacy-check>Check again</button>';
+      } else if (data.not_ready_reason) {
+        kind = 'alert-info';
+        html = escapeHtml(data.not_ready_reason);
+      }
+    } else if (err && !data.in_sync) {
       kind = 'alert-danger';
       html = escapeHtml(err.message || 'The router could not be updated.');
       if (err.error === 'router_password_needed' || err.error === 'router_not_connected') {
@@ -2554,6 +2644,7 @@ function renderPrivacy(data) {
     alert.className = `alert ${kind}`;
     alert.innerHTML = html;
     alert.querySelectorAll('[data-privacy-connect]').forEach(b => b.addEventListener('click', () => openRouterConnect()));
+    alert.querySelectorAll('[data-privacy-check]').forEach(b => b.addEventListener('click', () => handleRouterCheck()));
   }
 
   // Master switch
@@ -2650,11 +2741,22 @@ async function sendPrivacyChange(path, body, busyKey, doneText) {
       return;
     }
     const r = data.router || {};
+    const backend = (state.privacy && state.privacy.backend) === 'local' ? 'local' : 'router';
     if (r.ok) {
       if (r.changed) {
         showPrivacyResult('ok', doneText, r.warnings, r.output);
       } else {
         showPrivacyResult('', '');
+      }
+    } else if (backend === 'local') {
+      // A local backend may report through data.status only, without a
+      // router result.
+      if (r.error || r.message) {
+        showPrivacyResult('error', r.message || 'The local firewall could not be updated.', r.warnings, r.output);
+      } else if (!data.status || data.status.in_sync !== false) {
+        showPrivacyResult('ok', doneText, r.warnings, r.output);
+      } else {
+        showPrivacyResult('info', 'Saved. It is not applied to the local firewall yet.');
       }
     } else if (r.error === 'router_not_connected' || r.error === 'router_password_needed') {
       showPrivacyResult('info', r.message || 'Saved. Connect your router to apply it.');
@@ -2818,29 +2920,134 @@ async function handleRouterConnect(e) {
   }
 }
 
-// handleRouterCheck asks the router for its own report: which cameras it
-// blocks and whether any BombeCam rule is left in its firewall.
-async function handleRouterCheck() {
-  state.privacyBusy = 'router';
-  showPrivacyResult('busy', 'Asking the router...');
+// handlePrivacyBackendChange switches where the firewall runs. The gateway
+// applies the saved choices on the newly selected backend. Switching to the
+// local daemon never needs the router password, so this does not open the
+// router dialog.
+async function handlePrivacyBackendChange(e) {
+  const select = e.target;
+  const backend = select.value === 'local' ? 'local' : 'router';
+  const previous = (state.privacy && state.privacy.backend) === 'local' ? 'local' : 'router';
+  state.privacyBusy = 'backend';
+  select.disabled = true;
   try {
-    const res = await apiRequest('/api/v1/privacy/router/check', 'POST', {});
+    const res = await apiRequest('/api/v1/privacy/backend', 'POST', { backend });
+    const data = await res.json().catch(() => ({}));
+    const r = data.router || {};
+    if (!res.ok) {
+      select.value = previous;
+      showToast(data.message || 'Could not change where the firewall runs.', 'error');
+      if (r.message || r.warnings || r.output) {
+        showPrivacyResult('error', data.message || r.message || '', r.warnings, r.output);
+      }
+    } else if (data.ok === false) {
+      // The choice was saved; the backend could not apply it yet (router not
+      // connected, daemon down). Keep the selection so the next check/apply
+      // uses it.
+      showToast(data.message || 'Saved, but the firewall could not apply it yet.', 'warning');
+      showPrivacyResult('info', data.message || 'Saved, but the firewall could not apply it yet.', r.warnings, r.output);
+      if (data.status) {
+        state.privacy = data.status;
+        renderPrivacy(data.status);
+      }
+    } else {
+      showToast(backend === 'local' ? 'The firewall now runs on this computer.' : 'The firewall now runs on the router.', 'success');
+      if ((r.warnings && r.warnings.length) || r.output) {
+        showPrivacyResult('info', r.message || '', r.warnings, r.output);
+      }
+      if (data.status) {
+        state.privacy = data.status;
+        renderPrivacy(data.status);
+      }
+    }
+  } catch (err) {
+    select.value = previous;
+    showToast(`Couldn't reach BombeCam: ${err.message}`, 'error');
+  } finally {
+    state.privacyBusy = '';
+    await refreshPrivacyStatus();
+  }
+}
+
+// handlePrivacyRegionChange saves the Osaio region and applies it to the
+// active backend. The region is not tied to connecting a router: a local
+// bombecam-net needs it too.
+async function handlePrivacyRegionChange(e) {
+  const select = e.target;
+  const region = select.value === 'eu' ? 'eu' : 'us';
+  const previous = (state.privacy && state.privacy.region) === 'eu' ? 'eu' : 'us';
+  state.privacyBusy = 'region';
+  select.disabled = true;
+  try {
+    const res = await apiRequest('/api/v1/privacy/region', 'POST', { region });
+    const data = await res.json().catch(() => ({}));
+    const r = data.router || {};
+    if (!res.ok) {
+      select.value = previous;
+      showToast(data.message || 'Could not change the Osaio region.', 'error');
+      if (r.message || r.warnings || r.output) {
+        showPrivacyResult('error', data.message || r.message || '', r.warnings, r.output);
+      }
+    } else if (data.ok === false) {
+      showToast(data.message || 'Region saved, but the firewall could not apply it yet.', 'warning');
+      showPrivacyResult('info', data.message || 'Region saved, but the firewall could not apply it yet.', r.warnings, r.output);
+      if (data.status) {
+        state.privacy = data.status;
+        renderPrivacy(data.status);
+      }
+    } else {
+      showToast(`Osaio region: ${region.toUpperCase()}.`, 'success');
+      if ((r.warnings && r.warnings.length) || r.output) {
+        showPrivacyResult('info', r.message || '', r.warnings, r.output);
+      }
+      if (data.status) {
+        state.privacy = data.status;
+        renderPrivacy(data.status);
+      }
+    }
+  } catch (err) {
+    select.value = previous;
+    showToast(`Couldn't reach BombeCam: ${err.message}`, 'error');
+  } finally {
+    state.privacyBusy = '';
+    await refreshPrivacyStatus();
+  }
+}
+
+// handleRouterCheck asks the active backend for its own report: which cameras
+// it blocks and whether its rules are actually loaded.
+async function handleRouterCheck() {
+  const backend = (state.privacy && state.privacy.backend) === 'local' ? 'local' : 'router';
+  state.privacyBusy = 'router';
+  showPrivacyResult('busy', backend === 'local' ? 'Asking the local firewall...' : 'Asking the router...');
+  try {
+    const res = await apiRequest('/api/v1/privacy/check', 'POST', {});
     const data = await res.json().catch(() => ({}));
     const r = data.result || {};
     const output = (data.router && data.router.output) || '';
     if (res.ok) {
       const n = r.cameras || '0';
-      let msg = n === '0' ? 'The router blocks no camera' : `The router blocks ${n} camera(s)`;
-      // While blocking, the router reports whether its rules are loaded;
-      // with nothing blocked, whether any BombeCam rule is left over. Only a
-      // script from before that check leaves both out.
-      if (r.block === 'yes' && r.loaded !== undefined) msg += r.loaded === 'yes' ? ', and its rules are loaded in the firewall.' : ', but its rules are not loaded in the firewall. Restart the router, then Check router again.';
-      else if (r.block === 'yes') msg += '.';
-      else if (r.residue !== undefined) msg += r.residue === '0' ? ', and no BombeCam rule is left in its firewall.' : `, but ${r.residue} BombeCam rule(s) are left in its firewall.`;
-      else msg += '. (Its script is too old to check the firewall itself: press Update router.)';
-      showPrivacyResult('ok', msg, data.router && data.router.warnings, output);
+      if (backend === 'local') {
+        let msg = n === '0' ? 'The local firewall blocks no camera' : `The local firewall blocks ${n} camera(s)`;
+        if (r.block === 'yes' && r.loaded !== undefined) {
+          msg += r.loaded === 'yes' ? ', and its rules are loaded.' : ', but its rules are not loaded. Check the bombecam-net service, then Check again.';
+        } else {
+          msg += '.';
+        }
+        showPrivacyResult('ok', msg, data.router && data.router.warnings, output);
+      } else {
+        let msg = n === '0' ? 'The router blocks no camera' : `The router blocks ${n} camera(s)`;
+        // While blocking, the router reports whether its rules are loaded;
+        // with nothing blocked, whether any BombeCam rule is left over. Only a
+        // script from before that check leaves both out.
+        if (r.block === 'yes' && r.loaded !== undefined) msg += r.loaded === 'yes' ? ', and its rules are loaded in the firewall.' : ', but its rules are not loaded in the firewall. Restart the router, then Check router again.';
+        else if (r.block === 'yes') msg += '.';
+        else if (r.residue !== undefined) msg += r.residue === '0' ? ', and no BombeCam rule is left in its firewall.' : `, but ${r.residue} BombeCam rule(s) are left in its firewall.`;
+        else msg += '. (Its script is too old to check the firewall itself: press Update router.)';
+        showPrivacyResult('ok', msg, data.router && data.router.warnings, output);
+      }
     } else {
-      showPrivacyResult('error', data.message || 'The router could not be checked.', null, output);
+      showPrivacyResult('error', data.message || (backend === 'local' ? 'The local firewall could not be checked.' : 'The router could not be checked.'), null, output);
     }
   } catch (err) {
     showPrivacyResult('error', `Couldn't reach BombeCam: ${err.message}`);
@@ -3330,6 +3537,8 @@ function setupEventListeners() {
   }
 
   // Block cloud video (Block all + per-camera switches, router connect) and Stop
+  document.getElementById('privacy-backend')?.addEventListener('change', handlePrivacyBackendChange);
+  document.getElementById('privacy-region')?.addEventListener('change', handlePrivacyRegionChange);
   document.getElementById('privacy-master')?.addEventListener('change', (e) => setAllBlocked(e.target.checked));
   document.getElementById('btn-privacy-connect')?.addEventListener('click', () => openRouterConnect());
   document.getElementById('btn-privacy-disconnect')?.addEventListener('click', handleRouterDisconnect);

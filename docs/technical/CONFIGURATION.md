@@ -191,6 +191,24 @@ The tests never use a real account and mostly use made-up keys and app IDs:
 
 See [MAINTAINERS.md](MAINTAINERS.md#tests) for the commands.
 
+## Local firewall (bombecam-net)
+
+"Block cloud video" can be applied in two places, chosen in the **Firewall** tab:
+
+- **Router (OpenWrt / GL.iNet)** — the default: the rules go to the router over SSH with BombeCam's restricted key.
+- **This computer (bombecam-net)** — the rules go to the local `bombecam-net` daemon's API instead, as on Home Assistant. No router connection is needed.
+
+A profile that does not name a backend uses the router, so existing setups are unchanged.
+
+The gateway finds the daemon through the environment:
+
+| Variable | Default | What it is |
+|---|---|---|
+| `BOMBECAM_LOCAL_FIREWALL_URL` | `http://127.0.0.1:8653` | Base URL of the bombecam-net API |
+| `BOMBECAM_LOCAL_FIREWALL_KEY` | empty | Bearer token, when the daemon was started with `--api-key` (or `BOMBECAM_NET_API_KEY`) |
+
+Both are read when the gateway starts and whenever it talks to the daemon. If the daemon is not running, the Firewall tab says the local firewall is unreachable; the camera choices are still saved and are applied on the next successful sync.
+
 ## Other keys that are not the server key
 
 | Name | What it is |

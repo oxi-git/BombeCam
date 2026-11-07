@@ -144,19 +144,32 @@ type MQTTSettings struct {
 	DiscoveryPrefix string `json:"discovery_prefix,omitempty"`
 }
 
+// Firewall backends: where "Block cloud video" is applied.
+const (
+	// FirewallBackendRouter sends the rules to an OpenWrt / GL.iNet router
+	// over SSH. It is the default for profiles that name no backend.
+	FirewallBackendRouter = "router"
+	// FirewallBackendLocal sends the rules to the bombecam-net daemon on
+	// this computer (Home Assistant).
+	FirewallBackendLocal = "local"
+)
+
 // PrivacySettings records "Block cloud video": which cameras should be
-// blocked, and what the router the cameras connect to was last set to. The
-// router's password is never stored. Connecting the router once installs
-// BombeCam's own restricted key (Profile.RouterKey) for later changes.
+// blocked, and what the active backend was last set to. The router's
+// password is never stored. Connecting the router once installs BombeCam's
+// own restricted key (Profile.RouterKey) for later changes.
 type PrivacySettings struct {
+	// Backend is where the rules are applied ("router" or "local"). Empty
+	// or unknown means the router, so older profiles keep working.
+	Backend string `json:"backend,omitempty"`
 	// Blocked is the per-camera choice (camera ID -> blocked). A camera that
 	// is not listed follows BlockNewCameras.
 	Blocked map[string]bool `json:"blocked,omitempty"`
 	// BlockNewCameras is set by "Block all" and cleared by unblocking all.
 	BlockNewCameras bool `json:"block_new_cameras,omitempty"`
 
-	// BlockCloudVideo is nil until the router has been set up once; after
-	// that it says whether the router blocks any camera.
+	// BlockCloudVideo is nil until the active backend has been set up once;
+	// after that it says whether that backend blocks any camera.
 	BlockCloudVideo *bool     `json:"block_cloud_video,omitempty"`
 	AppliedAt       time.Time `json:"applied_at,omitempty"`
 	RouterAddress   string    `json:"router_address,omitempty"`

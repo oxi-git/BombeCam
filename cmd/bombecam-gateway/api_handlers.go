@@ -356,6 +356,15 @@ func SetupAPIMux(sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...
 	mux.HandleFunc("/api/v1/privacy/router/check", func(w http.ResponseWriter, r *http.Request) {
 		handleRouterCheck(w, r, streamMgr, optPM...)
 	})
+	mux.HandleFunc("/api/v1/privacy/check", func(w http.ResponseWriter, r *http.Request) {
+		handlePrivacyCheck(w, r, streamMgr, optPM...)
+	})
+	mux.HandleFunc("/api/v1/privacy/backend", func(w http.ResponseWriter, r *http.Request) {
+		handlePrivacyBackend(w, r, streamMgr, optPM...)
+	})
+	mux.HandleFunc("/api/v1/privacy/region", func(w http.ResponseWriter, r *http.Request) {
+		handlePrivacyRegion(w, r, streamMgr, optPM...)
+	})
 	mux.HandleFunc("/api/v1/privacy/forget-router", func(w http.ResponseWriter, r *http.Request) {
 		handlePrivacyForgetRouter(w, r, optPM...)
 	})
