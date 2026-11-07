@@ -176,6 +176,13 @@ type PrivacySettings struct {
 	RouterScriptVersion string `json:"router_script_version,omitempty"`
 	// BlockStreamSetup mirrors policy.Options.BlockStreamSetup.
 	BlockStreamSetup bool `json:"block_stream_setup,omitempty"`
+	// Region is the Osaio region the camera account belongs to ("us" or
+	// "eu"). The firewall allowlist trusts only that region's servers.
+	// Empty means the default (US).
+	Region string `json:"region,omitempty"`
+	// AppliedRegion is the region the router last applied. It lets BombeCam
+	// notice a changed choice and reapply even when the camera list is stable.
+	AppliedRegion string `json:"applied_region,omitempty"`
 }
 
 // Clone deep-copies the settings.

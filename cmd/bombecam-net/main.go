@@ -26,6 +26,27 @@ import (
 	"github.com/Fever-r/BombeCam/pkg/renderer/openwrt"
 )
 
+// parseRegion validates -region/BOMBECAM_REGION, exiting on a bad value.
+func parseRegion(s string) policy.Region {
+	r, err := policy.ParseRegion(s)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[!] %v\n", err)
+		os.Exit(1)
+	}
+	return r
+}
+
+// regionString reports the region in force: the saved one when the state has
+// it, else the flag.
+func regionString(state netstack.PersistedState, flag string) string {
+	if state.Region != "" {
+		if r, err := policy.ParseRegion(state.Region); err == nil {
+			return string(r)
+		}
+	}
+	return string(parseRegion(flag))
+}
+
 func getEnvOrDefault(envKey, defVal string) string {
 	if val := os.Getenv(envKey); val != "" {
 		return val
@@ -111,6 +132,7 @@ type options struct {
 	stateDir     string
 	cameras      multiFlag
 	blockSetup   bool
+	region       string
 	masq         bool
 	cameraIf     string
 	cameraSubnet string
@@ -134,6 +156,7 @@ func main() {
 	fs.StringVar(&o.stateDir, "state-dir", getEnvOrDefault("BOMBECAM_STATE_DIR", netstack.DefaultStateDir), "state directory")
 	fs.Var(&o.cameras, "camera", `camera as "Name=MAC" (repeatable; or CAMERA_MAC, comma-separated)`)
 	fs.BoolVar(&o.blockSetup, "block-stream-setup", os.Getenv("BOMBECAM_BLOCK_STREAM_SETUP") == "1", "also block Osaio's stream-setup server (may stop BombeCam starting local streams)")
+	fs.StringVar(&o.region, "region", getEnvOrDefault("BOMBECAM_REGION", string(policy.DefaultRegion)), `Osaio region: "us" or "eu"`)
 	fs.BoolVar(&o.masq, "masquerade", os.Getenv("BOMBECAM_MASQUERADE") == "1", "also add return-path NAT (only if this box routes the camera subnet and has no NAT of its own)")
 	fs.StringVar(&o.cameraIf, "camera-if", getEnvOrDefault("CAMERA_VLAN_IF", ""), "camera network interface (NAT only)")
 	fs.StringVar(&o.cameraSubnet, "camera-subnet", getEnvOrDefault("CAMERA_SUBNET", ""), "camera subnet CIDR (NAT only)")
@@ -251,6 +274,7 @@ Usage:
 Flags:
   --camera              "Name=MAC" (repeatable) or CAMERA_MAC="Name=MAC,..."
   --block-stream-setup  also block Osaio's stream-setup server (narrower; BombeCam may not be able to start local streams)
+  --region              Osaio region for the allowlist: "us" (default) or "eu" (also BOMBECAM_REGION)
   --state-dir           persistent state directory (default /var/lib/bombecam)
   --masquerade          add return-path NAT (only for a box that routes the camera subnet without NAT of its own)
   --api-host/--api-port local REST API (default 127.0.0.1:8653)`)
@@ -260,6 +284,7 @@ func newManager(o options) *netstack.RulesetManager {
 	m, err := netstack.NewRulesetManager(netstack.RulesetConfig{
 		Cameras:          cameraEntries(o.cameras),
 		BlockStreamSetup: o.blockSetup,
+		Region:           parseRegion(o.region),
 		EnableMasq:       o.masq,
 		WANInterface:     o.wanIf,
 		CameraSubnet:     o.cameraSubnet,
@@ -308,7 +333,7 @@ func runSetBlock(o options, block bool) {
 	if err := m.Apply(block); err != nil {
 		fmt.Fprintf(os.Stderr, "[!] could not apply Block cloud video = %s: %v\n", yesNo(block), err)
 		if block {
-			_ = sm.Persist(true, "", netstack.StatusDegradedFailClosed)
+			_ = sm.Persist(true, m.Region(), "", netstack.StatusDegradedFailClosed)
 			fmt.Fprintln(os.Stderr, "    Nothing was changed in the kernel; the camera is NOT protected.")
 		}
 		os.Exit(1)
@@ -318,7 +343,7 @@ func runSetBlock(o options, block bool) {
 	if !block {
 		status = netstack.StatusRemoved
 	}
-	if err := sm.Persist(block, m.LastRendered, status); err != nil {
+	if err := sm.Persist(block, m.Region(), m.LastRendered, status); err != nil {
 		fmt.Fprintf(os.Stderr, "[!] rules applied but the setting could not be saved: %v\n", err)
 		os.Exit(1)
 	}
@@ -341,6 +366,7 @@ func runStatus(o options) {
 	}
 	out := map[string]any{
 		"block_cloud_video": block,
+		"region":            regionString(state, o.region),
 		"rules_loaded":      loaded,
 		"state_status":      state.Status,
 		"ruleset_hash":      state.RulesetHash,
@@ -385,7 +411,7 @@ func runDaemon(o options) {
 		if !b {
 			status = netstack.StatusRemoved
 		}
-		return sm.Persist(b, m.LastRendered, status)
+		return sm.Persist(b, m.Region(), m.LastRendered, status)
 	}
 	if err := apply(block); err != nil {
 		fmt.Fprintf(os.Stderr, "[!] FATAL: could not apply Block cloud video = %s: %v\n", yesNo(block), err)
@@ -408,7 +434,7 @@ func runDaemon(o options) {
 					if err := m.Apply(true); err != nil {
 						fmt.Printf("[-] re-apply after address change failed: %v\n", err)
 					} else {
-						_ = sm.Persist(true, m.LastRendered, netstack.StatusRulesLoaded)
+						_ = sm.Persist(true, m.Region(), m.LastRendered, netstack.StatusRulesLoaded)
 						fmt.Println("[+] allowlisted addresses changed; rules re-applied")
 					}
 				}

@@ -295,8 +295,9 @@ func syncRouterLocked(ctx context.Context, streamMgr *StreamManager, pm profile.
 	cams := collectPrivacyCameras(ctx, streamMgr, pm)
 	prof := pm.GetProfile() // re-read: MAC learning may have updated it
 	ps := prof.Privacy
+	region := privacyRegion(ps)
 	want := routerCameras(cams)
-	if !force && sameMACs(want, ps.AppliedCameras) {
+	if !force && sameMACs(want, ps.AppliedCameras) && appliedRegion(ps) == string(region) {
 		return routerOutcome{OK: true}
 	}
 	if !ps.RouterConnected || prof.RouterKey.IsEmpty() {
@@ -307,7 +308,7 @@ func syncRouterLocked(ctx context.Context, streamMgr *StreamManager, pm profile.
 		markRouterDisconnected(ctx, pm)
 		return routerOutcome{Code: "router_not_connected", Message: "BombeCam's router key is unreadable. Connect the router again."}
 	}
-	spec, err := openwrt.ApplySpec(want, policy.Options{BlockStreamSetup: ps.BlockStreamSetup})
+	spec, err := openwrt.ApplySpec(want, policy.Options{BlockStreamSetup: ps.BlockStreamSetup}, region)
 	if err != nil {
 		return routerOutcome{Code: "invalid_camera", Message: err.Error()}
 	}
@@ -480,6 +481,9 @@ func recordApplied(ctx context.Context, pm profile.ProfileManager, want []openwr
 		if v := result.Fields["version"]; v != "" {
 			p.Privacy.RouterScriptVersion = v
 		}
+		if v := result.Fields["region"]; v != "" {
+			p.Privacy.AppliedRegion = v
+		}
 		if p.Privacy.RouterHostKeyType == "" && res.HostKey == p.Privacy.RouterHostKey {
 			p.Privacy.RouterHostKeyType = res.HostKeyType
 		}
@@ -551,7 +555,8 @@ func privacyStatus(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 		}
 	}
 	want := routerCameras(cams)
-	inSync := sameMACs(want, ps.AppliedCameras)
+	region := privacyRegion(ps)
+	inSync := sameMACs(want, ps.AppliedCameras) && appliedRegion(ps) == string(region)
 	blocked, waiting := 0, []string{}
 	for _, c := range cams {
 		if c.Blocked {
@@ -603,7 +608,9 @@ func privacyStatus(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 		"suggested_router_address": suggestion.Address,
 		"suggested_router_source":  suggestion.Source,
 		"cap_bytes_per_second":     policy.CapBytesPerSecond,
-		"allowlist":                allowlistView(ps.BlockStreamSetup),
+		"region":                   string(region),
+		"applied_region":           appliedRegion(ps),
+		"allowlist":                allowlistView(ps.BlockStreamSetup, region),
 		"block_stream_setup":       ps.BlockStreamSetup,
 		"router": map[string]any{
 			"connected":       ps.RouterConnected && prof != nil && !prof.RouterKey.IsEmpty(),
@@ -633,15 +640,37 @@ func privacyStatus(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 		for _, c := range want {
 			args = append(args, "--camera", policy.SanitizeName(c.Name)+"="+c.MAC)
 		}
+		if region != policy.RegionUS {
+			args = append(args, "--region", string(region))
+		}
 		resp["manual_command"] = openwrt.ManualCommand(args)
 	}
 	resp["manual_remove_command"] = "bombecam-router uninstall"
 	return resp
 }
 
-func allowlistView(blockStreamSetup bool) []map[string]any {
+// privacyRegion returns the saved region, falling back to the default when it
+// is unset or unrecognised (old profiles carry no region).
+func privacyRegion(ps profile.PrivacySettings) policy.Region {
+	r, err := policy.ParseRegion(ps.Region)
+	if err != nil {
+		return policy.DefaultRegion
+	}
+	return r
+}
+
+// appliedRegion returns the region the router last applied, treating an empty
+// record as the default so old profiles do not force a pointless reapply.
+func appliedRegion(ps profile.PrivacySettings) string {
+	if ps.AppliedRegion == "" {
+		return string(policy.DefaultRegion)
+	}
+	return ps.AppliedRegion
+}
+
+func allowlistView(blockStreamSetup bool, region policy.Region) []map[string]any {
 	doc, err := policy.Compile([]policy.Subject{{ID: "x", MAC: "02:00:00:00:00:01"}},
-		policy.Setting{BlockCloudVideo: true}, policy.Options{BlockStreamSetup: blockStreamSetup})
+		policy.Setting{BlockCloudVideo: true, Region: region}, policy.Options{BlockStreamSetup: blockStreamSetup})
 	if err != nil {
 		return nil
 	}
@@ -782,6 +811,8 @@ type routerConnectRequest struct {
 	RouterAddress  string `json:"router_address"`
 	RouterUser     string `json:"router_user"`
 	RouterPassword string `json:"router_password"`
+	// Region is optional ("us" or "eu"). Empty keeps the saved choice.
+	Region string `json:"region,omitempty"`
 }
 
 func (req routerConnectRequest) validate() (addr, user string, o *routerOutcome) {
@@ -796,6 +827,11 @@ func (req routerConnectRequest) validate() (addr, user string, o *routerOutcome)
 	if strings.ContainsAny(user, " \t\r\n'\"`$;&|<>") || len(user) > 32 {
 		return "", "", &routerOutcome{Code: "invalid_router_user", Message: "Router user name is not valid."}
 	}
+	if req.Region != "" {
+		if _, err := policy.ParseRegion(req.Region); err != nil {
+			return "", "", &routerOutcome{Code: "invalid_region", Message: err.Error()}
+		}
+	}
 	return addr, user, nil
 }
 
@@ -807,7 +843,7 @@ func statusForOutcome(o routerOutcome) int {
 		return http.StatusUnauthorized
 	case "router_identity_changed", "not_configured", "busy":
 		return http.StatusConflict
-	case "invalid_router_address", "invalid_router_user", "invalid_request":
+	case "invalid_router_address", "invalid_router_user", "invalid_region", "invalid_request":
 		return http.StatusBadRequest
 	}
 	return http.StatusBadGateway
@@ -859,7 +895,13 @@ func connectRouter(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
 		if !sameRouter(p.Privacy.RouterAddress, addr) {
 			p.Privacy.AppliedCameras = nil // a different router: nothing known about it
+			p.Privacy.AppliedRegion = ""
 			p.Privacy.BlockCloudVideo = nil
+		}
+		if req.Region != "" {
+			if r, err := policy.ParseRegion(req.Region); err == nil {
+				p.Privacy.Region = string(r)
+			}
 		}
 		p.Privacy.RouterAddress = addr
 		p.Privacy.LastRouterAddress = addr
@@ -895,16 +937,21 @@ func applyOverPassword(ctx context.Context, streamMgr *StreamManager, pm profile
 	t.PinnedHostKey, t.PinnedHostKeyType = hostKey, hostKeyType
 	cams := collectPrivacyCameras(ctx, streamMgr, pm)
 	want := routerCameras(cams)
+	ps := pm.GetProfile().Privacy
+	region := privacyRegion(ps)
 	args := []string{"apply", "no"}
 	if len(want) > 0 {
 		args = []string{"apply", "yes"}
 		for _, c := range want {
 			args = append(args, "--camera", policy.SanitizeName(c.Name)+"="+c.MAC)
 		}
-		if pm.GetProfile().Privacy.BlockStreamSetup {
+		if ps.BlockStreamSetup {
 			args = append(args, "--block-stream-setup")
 		} else {
 			args = append(args, "--allow-stream-setup")
+		}
+		if region != policy.RegionUS {
+			args = append(args, "--region", string(region))
 		}
 	}
 	res, err := routerRun(ctx, t, openwrt.RemoteCommand(args), openwrt.Script())
@@ -1011,8 +1058,9 @@ func uninstallFromRouter(ctx context.Context, pm profile.ProfileManager) routerO
 func forgetRouter(ctx context.Context, pm profile.ProfileManager, unblock bool) {
 	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
 		keep, last := p.Privacy.BlockStreamSetup, p.Privacy.LastRouterAddress
+		region := p.Privacy.Region
 		blocked, blockNew := p.Privacy.Blocked, p.Privacy.BlockNewCameras
-		p.Privacy = profile.PrivacySettings{BlockStreamSetup: keep, LastRouterAddress: last}
+		p.Privacy = profile.PrivacySettings{BlockStreamSetup: keep, LastRouterAddress: last, Region: region}
 		if !unblock {
 			p.Privacy.Blocked, p.Privacy.BlockNewCameras = blocked, blockNew
 		}

@@ -99,6 +99,7 @@ services:
       WAN_INTERFACE: ${WAN_INTERFACE:-}
       # Required: the daemon refuses to start without it (see deploy/.env.example)
       CAMERA_MAC: ${CAMERA_MAC:-}
+      BOMBECAM_REGION: ${BOMBECAM_REGION:-us}
       BOMBECAM_MASQUERADE: ${BOMBECAM_MASQUERADE:-0}
       BOMBECAM_STATE_DIR: /var/lib/bombecam-net
       BOMBECAM_NET_API_HOST: ${BOMBECAM_NET_API_HOST:-127.0.0.1}

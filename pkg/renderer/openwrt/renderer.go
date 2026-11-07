@@ -81,6 +81,12 @@ func ApplyArgs(doc *policy.Document, opts policy.Options) ([]string, error) {
 	} else {
 		args = append(args, "--allow-stream-setup")
 	}
+	// Only send the region when it is not the default: a router still running
+	// an older script rejects unknown options, and older scripts only know the
+	// US allowlist.
+	if region := doc.Region.OrDefault(); region != policy.RegionUS {
+		args = append(args, "--region", string(region))
+	}
 	return args, nil
 }
 
@@ -98,7 +104,9 @@ const (
 // ApplySpec is the stdin for the gate's "apply": the complete list of cameras
 // to block (none means block no camera) and the stream-setup option. Names are
 // sanitised and MACs canonicalised; cameras without a valid MAC are an error.
-func ApplySpec(cams []Camera, opts policy.Options) ([]byte, error) {
+// The region line is emitted only when it is not the default, so routers still
+// running an older script keep working.
+func ApplySpec(cams []Camera, opts policy.Options, region policy.Region) ([]byte, error) {
 	var b strings.Builder
 	for _, c := range cams {
 		mac := policy.CanonicalMAC(c.MAC)
@@ -111,6 +119,9 @@ func ApplySpec(cams []Camera, opts policy.Options) ([]byte, error) {
 		b.WriteString("block_stream_setup 1\n")
 	} else {
 		b.WriteString("block_stream_setup 0\n")
+	}
+	if r := region.OrDefault(); r != policy.RegionUS {
+		fmt.Fprintf(&b, "region %s\n", r)
 	}
 	return []byte(b.String()), nil
 }

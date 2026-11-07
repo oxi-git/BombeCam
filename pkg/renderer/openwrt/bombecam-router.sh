@@ -25,9 +25,11 @@
 # What "yes" does, per camera MAC, for traffic the router forwards:
 #   - traffic to your own network (private IPv4 ranges) is left alone
 #   - allowed, and sharing one bandwidth cap of about 4 KB/s per camera:
-#       the Osaio control connection   mqtts02-us.osaio.net  TCP 8883
-#       the stream-setup handshake     wss-us.osaio.net      TCP 443
+#       the Osaio control connection   the region's control hosts  TCP 8883
+#       the stream-setup handshake     the region's setup host     TCP 443
 #       DNS (UDP/TCP 53) and time sync (UDP 123), IPv4 only
+#     The hosts are selected by region (us or eu), so the allowlist matches
+#     the Osaio cloud the camera's account belongs to.
 #   - everything else from the camera is dropped, IPv4 and IPv6
 #   - when the rules go into force, the router's tracked connections of each
 #     blocked camera are cleared, so a connection opened before the block
@@ -39,12 +41,18 @@ set -u
 LC_ALL=C
 export LC_ALL
 
-VERSION=1.0.0
+VERSION=1.1.0
 
 # --- policy (must match pkg/policy; a Go test checks) ------------------------
-CONTROL_HOST=mqtts02-us.osaio.net
+# The default region, used when neither --region nor a saved choice is present.
+REGION=us
+# Osaio endpoints per region. A region may publish more than one control
+# name; every one of them is allowed.
+US_CONTROL_HOSTS="mqtts02-us.osaio.net"
+US_SETUP_HOST=wss-us.osaio.net
+EU_CONTROL_HOSTS="mqtts-eu.osaio.net mqtts01-eu.osaio.net"
+EU_SETUP_HOST=wss-eu.osaio.net
 CONTROL_PORT=8883
-SETUP_HOST=wss-us.osaio.net
 SETUP_PORT=443
 CAP_BPS=4096
 CAP_BURST=8192
@@ -248,9 +256,33 @@ resolve4() {
 	fi | awk '/^Name:/ { f = 1; next } f' | public_v4
 }
 
+# effective_region prints the region in force: the saved choice, else the
+# built-in default.
+effective_region() {
+	r=$(opt REGION)
+	[ -n "$r" ] || r=$REGION
+	say "$r"
+}
+
+# control_hosts prints the region's control host names, space separated.
+control_hosts() {
+	case "$(effective_region)" in
+	eu) say "$EU_CONTROL_HOSTS" ;;
+	*) say "$US_CONTROL_HOSTS" ;;
+	esac
+}
+
+# setup_host prints the region's stream-setup host name.
+setup_host() {
+	case "$(effective_region)" in
+	eu) say "$EU_SETUP_HOST" ;;
+	*) say "$US_SETUP_HOST" ;;
+	esac
+}
+
 allowed_hosts() {
-	say "$CONTROL_HOST"
-	stream_setup_allowed && say "$SETUP_HOST"
+	for h in $(control_hosts); do say "$h"; done
+	stream_setup_allowed && say "$(setup_host)"
 }
 
 # host_ips HOST prints the cached IPv4 addresses for HOST, sorted.
@@ -309,8 +341,8 @@ gen_nft() {
 	say ""
 	say "table inet $TABLE {"
 	printf '\tset cameras {\n\t\ttype ether_addr\n\t\telements = { %s }\n\t}\n' "$macs"
-	gen_nft_set control_v4 "$CONTROL_HOST"
-	stream_setup_allowed && gen_nft_set stream_setup_v4 "$SETUP_HOST"
+	gen_nft_set control_v4 $(control_hosts)
+	stream_setup_allowed && gen_nft_set stream_setup_v4 $(setup_host)
 	printf '\n\tchain forward {\n'
 	printf '\t\ttype filter hook forward priority filter - 5; policy accept;\n'
 	printf '\t\tether saddr @cameras jump camera_out\n\t}\n\n'
@@ -332,9 +364,13 @@ gen_nft() {
 	printf '\t\tcounter accept comment "allowed, under cap"\n\t}\n}\n'
 }
 
+# gen_nft_set NAME HOST... writes an nft set holding the cached addresses of
+# every HOST.
 gen_nft_set() {
-	ips=$(host_ips "$2" | join_csv)
-	printf '\tset %s {\n\t\ttype ipv4_addr\n' "$1"
+	name=$1
+	shift
+	ips=$(for h in "$@"; do host_ips "$h"; done | sort -u | join_csv)
+	printf '\tset %s {\n\t\ttype ipv4_addr\n' "$name"
 	[ -n "$ips" ] && printf '\t\telements = { %s }\n' "$ips"
 	printf '\t}\n'
 }
@@ -371,11 +407,11 @@ gen_ipt() {
 	for n in $LOCAL_NETS; do
 		say "-A bombecam_out -d $n -j RETURN"
 	done
-	for ip in $(host_ips "$CONTROL_HOST"); do
+	for ip in $(for h in $(control_hosts); do host_ips "$h"; done | sort -u); do
 		say "-A bombecam_out -d $ip/32 -p tcp -m tcp --dport $CONTROL_PORT -j bombecam_cap"
 	done
 	if stream_setup_allowed; then
-		for ip in $(host_ips "$SETUP_HOST"); do
+		for ip in $(host_ips "$(setup_host)"); do
 			say "-A bombecam_out -d $ip/32 -p tcp -m tcp --dport $SETUP_PORT -j bombecam_cap"
 		done
 	fi
@@ -661,6 +697,17 @@ parse_cameras() {
 			;;
 		--block-stream-setup) BSS=1; shift; continue ;;
 		--allow-stream-setup) BSS=0; shift; continue ;;
+		--region)
+			[ $# -ge 2 ] || die "--region needs us or eu"
+			RGN=$2
+			shift 2
+			continue
+			;;
+		--region=*)
+			RGN=${1#--region=}
+			shift
+			continue
+			;;
 		*) die "unknown option: $1" ;;
 		esac
 		case "$spec" in *=*) ;; *) die "camera must be NAME=MAC, got: $spec" ;; esac
@@ -669,6 +716,10 @@ parse_cameras() {
 		grep -q "^$mac	" "$out" 2>/dev/null && die "MAC $mac listed twice"
 		printf '%s\t%s\n' "$mac" "$name" >>"$out"
 	done
+	case "${RGN:-us}" in
+	us | eu) ;;
+	*) die "unknown region: ${RGN} (want us or eu)" ;;
+	esac
 }
 
 self_path() {
@@ -718,6 +769,7 @@ cmd_apply() {
 	[ "$fw" != none ] || die "no supported firewall found (need OpenWrt fw4/nftables or fw3/iptables)"
 	mkdir -p "$BC_DIR"
 	BSS=$(opt BLOCK_STREAM_SETUP)
+	RGN=$(opt REGION)
 	parse_cameras "$CAMS.new" "$@"
 	if [ -s "$CAMS.new" ]; then
 		sort "$CAMS.new" >"$CAMS"
@@ -729,6 +781,7 @@ cmd_apply() {
 	fi
 	rm -f "$CAMS.new"
 	set_opt BLOCK_STREAM_SETUP "${BSS:-0}"
+	set_opt REGION "${RGN:-us}"
 
 	install_self
 
@@ -748,8 +801,9 @@ cmd_apply() {
 	bridge_mode_warning
 	say ""
 	say "Block cloud video: YES. $(cam_macs | wc -l | tr -d ' ') camera(s) selected for blocking."
+	say "Osaio region: $(effective_region)"
 	say "Camera internet access is limited by destination and rate; encrypted traffic may still carry image data."
-	say "BOMBECAM_RESULT status=ok block=yes firewall=$fw cameras=$(cam_macs | wc -l | tr -d ' ') cap=${CAP_MODE:-bytes} stream_setup=$(stream_setup_allowed && echo allowed || echo blocked) cleared=$CLEARED connected=$(yes_no is_connected) version=$VERSION"
+	say "BOMBECAM_RESULT status=ok block=yes firewall=$fw cameras=$(cam_macs | wc -l | tr -d ' ') cap=${CAP_MODE:-bytes} stream_setup=$(stream_setup_allowed && echo allowed || echo blocked) region=$(effective_region) cleared=$CLEARED connected=$(yes_no is_connected) version=$VERSION"
 }
 
 # cmd_load runs at boot and, on fw3, after every firewall reload (which
@@ -782,12 +836,14 @@ cmd_render() {
 		shift
 		tmpdir=$(mktemp -d)
 		BSS=0
+		RGN=$(opt REGION)
 		parse_cameras "$tmpdir/cameras" "$@"
 		[ -f "$IPS" ] && cp "$IPS" "$tmpdir/ips"
 		CAMS=$tmpdir/cameras
 		IPS=$tmpdir/ips
 		OPTS=$tmpdir/options
 		printf 'BLOCK_STREAM_SETUP=%s\n' "$BSS" >"$OPTS"
+		printf 'REGION=%s\n' "${RGN:-us}" >>"$OPTS"
 	fi
 	fw=$(detect_fw)
 	case "$fw" in
@@ -859,7 +915,7 @@ camera_conns() {
 	sa=0
 	stream_setup_allowed && sa=1
 	awk -v fc="$d/cams" -v fself="$d/self" -v fips="$d/ips" \
-		-v ch="$CONTROL_HOST" -v cport="$CONTROL_PORT" -v shost="$SETUP_HOST" -v sport="$SETUP_PORT" -v sa="$sa" '
+		-v ch="$(control_hosts)" -v cport="$CONTROL_PORT" -v shost="$(setup_host)" -v sport="$SETUP_PORT" -v sa="$sa" '
 		function loc4(a, o) {
 			split(a, o, ".")
 			return o[1] == 10 || o[1] == 127 || o[1] == 0 || o[1] >= 224 ||
@@ -869,6 +925,11 @@ camera_conns() {
 		function loc6(a) {
 			a = tolower(a)
 			return a ~ /^fe[89ab]/ || a ~ /^f[cd]/ || a ~ /^ff/ || a == "::1"
+		}
+		function inhosts(list, ip,   n, a, i) {
+			n = split(list, a, " ")
+			for (i = 1; i <= n; i++) if ((a[i] " " ip) in allow) return 1
+			return 0
 		}
 		FILENAME == fc { cam[$1] = $2; next }
 		FILENAME == fself { self[$1] = 1; next }
@@ -888,7 +949,7 @@ camera_conns() {
 			else if (fam == "ipv4" && loc4(dst)) k = "your network"
 			else if (fam == "ipv6" && loc6(dst)) k = "your network"
 			else if (fam == "ipv4") {
-				if (proto == "tcp" && dport == cport && ((ch " " dst) in allow)) k = "control"
+				if (proto == "tcp" && dport == cport && inhosts(ch, dst)) k = "control"
 				else if (proto == "tcp" && sa == 1 && dport == sport && ((shost " " dst) in allow)) k = "stream_setup"
 				else if ((proto == "udp" || proto == "tcp") && dport == "53") k = "dns"
 				else if (proto == "udp" && dport == "123") k = "time"
@@ -1002,17 +1063,21 @@ cmd_status() {
 	esac
 	say "  Block cloud video: YES   rules loaded: $loaded"
 	say "  Firewall: $fw"
+	say "  Region: $(effective_region)"
 	say "  Cameras:"
 	for m in $(cam_macs); do
 		cip=$(cam_ip "$m")
 		say "    $(cam_name "$m")  $m  ${cip:-(IP not seen yet)}"
 	done
 	say "  Allowed, sharing a cap of $CAP_BPS bytes/s per camera (burst $CAP_BURST):"
-	say "    control   $CONTROL_HOST:$CONTROL_PORT -> $(host_ips "$CONTROL_HOST" | tr '\n' ' ')"
+	for h in $(control_hosts); do
+		say "    control   $h:$CONTROL_PORT -> $(host_ips "$h" | tr '\n' ' ')"
+	done
 	if stream_setup_allowed; then
-		say "    setup     $SETUP_HOST:$SETUP_PORT -> $(host_ips "$SETUP_HOST" | tr '\n' ' ')"
+		shost=$(setup_host)
+		say "    setup     $shost:$SETUP_PORT -> $(host_ips "$shost" | tr '\n' ' ')"
 	else
-		say "    setup     $SETUP_HOST:$SETUP_PORT -> BLOCKED (--block-stream-setup)"
+		say "    setup     $(setup_host):$SETUP_PORT -> BLOCKED (--block-stream-setup)"
 	fi
 	say "    DNS (53) and time sync (123), IPv4"
 	if have uci; then
@@ -1080,7 +1145,7 @@ cmd_status() {
 	else
 		say "    (logread not available)"
 	fi
-	say "BOMBECAM_RESULT status=ok block=yes firewall=$fw cameras=$(cam_macs | wc -l | tr -d ' ') loaded=$loaded connected=$(yes_no is_connected) version=$VERSION"
+	say "BOMBECAM_RESULT status=ok block=yes firewall=$fw cameras=$(cam_macs | wc -l | tr -d ' ') loaded=$loaded region=$(effective_region) connected=$(yes_no is_connected) version=$VERSION"
 }
 
 # cmd_connections lists what the cameras are connected to, from the kernel's
@@ -1189,6 +1254,7 @@ cmd_uninstall() {
 # below. "apply" reads the complete list of cameras to block from stdin:
 #   camera <mac> <name>        (one line per camera; none = block no camera)
 #   block_stream_setup 0|1
+#   region us|eu               (optional; omitted keeps the saved choice)
 cmd_gate() {
 	case "${SSH_ORIGINAL_COMMAND:-}" in
 	apply) gate_apply ;;
@@ -1207,11 +1273,13 @@ gate_apply() {
 	spec=$(mktemp)
 	head -c 65536 >"$spec"
 	bss=""
+	rgn=""
 	set --
 	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in
 		"block_stream_setup 1") bss=1 ;;
 		"block_stream_setup 0") bss=0 ;;
+		"region us" | "region eu") rgn=${line#region } ;;
 		"camera "*)
 			rest=${line#camera }
 			mac=${rest%% *}
@@ -1233,6 +1301,7 @@ gate_apply() {
 	fi
 	[ "$bss" = 1 ] && set -- "$@" --block-stream-setup
 	[ "$bss" = 0 ] && set -- "$@" --allow-stream-setup
+	[ -n "$rgn" ] && set -- "$@" --region "$rgn"
 	cmd_apply yes "$@"
 }
 

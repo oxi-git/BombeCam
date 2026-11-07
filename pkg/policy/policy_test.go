@@ -148,3 +148,87 @@ func TestHeadlineWording(t *testing.T) {
 		t.Fatal("headline must not claim zero exposure")
 	}
 }
+
+func TestRegionEndpoints(t *testing.T) {
+	us, err := RegionEndpoints(RegionUS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(us.ControlHosts) != 1 || us.ControlHosts[0] != "mqtts02-us.osaio.net" {
+		t.Fatalf("US control hosts = %v", us.ControlHosts)
+	}
+	eu, err := RegionEndpoints(RegionEU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "mqtts-eu.osaio.net,mqtts01-eu.osaio.net"
+	if got := strings.Join(eu.ControlHosts, ","); got != want {
+		t.Fatalf("EU control hosts = %s, want %s", got, want)
+	}
+	if eu.StreamSetupHost != "wss-eu.osaio.net" || eu.StreamSetupPort != 443 {
+		t.Fatalf("EU stream setup = %s:%d", eu.StreamSetupHost, eu.StreamSetupPort)
+	}
+	if _, err := RegionEndpoints("cn"); err == nil {
+		t.Fatal("unknown region accepted")
+	}
+	if r, err := ParseRegion(""); err != nil || r != DefaultRegion {
+		t.Fatalf("empty region = %q, %v", r, err)
+	}
+	if r, err := ParseRegion("EU"); err != nil || r != RegionEU {
+		t.Fatalf("EU region = %q, %v", r, err)
+	}
+}
+
+func TestCompileEU(t *testing.T) {
+	doc, err := Compile([]Subject{testCam}, Setting{BlockCloudVideo: true, Region: RegionEU}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Region != RegionEU {
+		t.Fatalf("document region = %q", doc.Region)
+	}
+	ctl, ok := doc.Rule("control")
+	if !ok || ctl.Host != "mqtts-eu.osaio.net" || ctl.Port != 8883 {
+		t.Fatalf("control rule = %+v", ctl)
+	}
+	alt, ok := doc.Rule("control_2")
+	if !ok || alt.Host != "mqtts01-eu.osaio.net" {
+		t.Fatalf("alternate control rule = %+v", alt)
+	}
+	setup, ok := doc.Rule("stream_setup")
+	if !ok || setup.Host != "wss-eu.osaio.net" {
+		t.Fatalf("stream setup rule = %+v", setup)
+	}
+	if got, want := strings.Join(doc.Hosts(), ","), "mqtts-eu.osaio.net,mqtts01-eu.osaio.net,wss-eu.osaio.net"; got != want {
+		t.Fatalf("hosts = %s, want %s", got, want)
+	}
+	// Default (empty) region keeps the US allowlist.
+	def, err := Compile([]Subject{testCam}, Setting{BlockCloudVideo: true}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Region != RegionUS {
+		t.Fatalf("default region = %q", def.Region)
+	}
+	if _, ok := def.Rule("control_2"); ok {
+		t.Fatal("US document has an alternate control rule")
+	}
+}
+
+func TestUnknownRegionRejected(t *testing.T) {
+	if _, err := Compile([]Subject{testCam}, Setting{BlockCloudVideo: true, Region: "cn"}, Options{}); err == nil {
+		t.Fatal("unknown region compiled")
+	}
+}
+
+func TestValidateRejectsForeignRegionHosts(t *testing.T) {
+	doc, err := Compile([]Subject{testCam}, Setting{BlockCloudVideo: true}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A US document relabelled as EU no longer has the EU control servers.
+	doc.Region = RegionEU
+	if err := doc.Validate(); err == nil {
+		t.Fatal("document validated with mismatched region hosts")
+	}
+}

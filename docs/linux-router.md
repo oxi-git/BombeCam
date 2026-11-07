@@ -24,10 +24,13 @@ Flags:
 ```
 --camera              "Name=MAC" (repeatable), or CAMERA_MAC="Name=MAC,Name=MAC"
 --block-stream-setup  also block Osaio's stream-setup server (BombeCam may then be unable to start local streams)
+--region              Osaio region for the allowlist: "us" (default) or "eu" (also BOMBECAM_REGION)
 --state-dir           persistent state (default /var/lib/bombecam)
 --masquerade          add return-path NAT, only for a machine that routes the camera subnet without NAT of its own
 --api-host/--api-port local REST API (default 127.0.0.1:8653)
 ```
+
+The region selects the Osaio endpoints the allowlist trusts: US (`mqtts02-us.osaio.net`, `wss-us.osaio.net`) or EU (`mqtts-eu.osaio.net`, `mqtts01-eu.osaio.net`, `wss-eu.osaio.net`). Use the region the cameras' Osaio account belongs to; the wrong one blocks their control channel.
 
 The rules are those described in [block-cloud-video.md](block-cloud-video.md#what-the-router-does): traffic to private networks untouched; Osaio control, stream setup, DNS and time sync allowed under a shared 4 KB/s cap per camera; everything else, including IPv6, dropped. They are loaded in one nftables transaction and read back from the kernel.
 
@@ -39,7 +42,7 @@ The daemon's local API (`/api/v1/net/status`, `/api/v1/net/block-cloud-video`, `
 
 ```
 cd deploy
-cp .env.example .env      # set CAMERA_MAC="Front Door=aa:bb:cc:dd:ee:ff,...", and the interface settings if needed
+cp .env.example .env      # set CAMERA_MAC="Front Door=aa:bb:cc:dd:ee:ff,...", BOMBECAM_REGION=us|eu, and the interface settings if needed
 docker compose --profile isolation up -d
 ```
 

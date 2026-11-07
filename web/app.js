@@ -2500,8 +2500,9 @@ function renderPrivacy(data) {
   const status = document.getElementById('privacy-router-status');
   if (status) {
     if (router.connected) {
+      const region = (data.region || 'us').toUpperCase();
       status.innerHTML = `Connected: <strong>${escapeHtml(stripSSHPort(router.address))}</strong>` +
-        (router.firewall ? ` <span class="text-muted">(OpenWrt ${escapeHtml(router.firewall)})</span>` : '');
+        (router.firewall ? ` <span class="text-muted">(OpenWrt ${escapeHtml(router.firewall)}, ${escapeHtml(region)} region)</span>` : ` <span class="text-muted">(${escapeHtml(region)} region)</span>`);
     } else if (router.known) {
       status.innerHTML = `Not connected <span class="text-muted">(last used ${escapeHtml(stripSSHPort(router.address))})</span>`;
     } else {
@@ -2744,6 +2745,8 @@ function openRouterConnect(reason) {
     };
     if (source) hint.textContent = why[source] || why.guess;
   }
+  const regionEl = document.getElementById('privacy-region');
+  if (regionEl) regionEl.value = data.region === 'eu' ? 'eu' : 'us';
   const user = document.getElementById('privacy-router-user');
   if (user && router.user) user.value = router.user;
   const pw = document.getElementById('privacy-router-password');
@@ -2774,10 +2777,12 @@ async function handleRouterConnect(e) {
   state.privacyBusy = 'router';
   showPrivacyResult('busy', 'Connecting to the router. This usually takes a few seconds (up to a minute if the router is slow to look up names).');
   try {
+    const regionEl = document.getElementById('privacy-region');
     const res = await apiRequest('/api/v1/privacy/router/connect', 'POST', {
       router_address: address,
       router_user: userEl ? userEl.value.trim() : 'root',
       router_password: pwEl ? pwEl.value : '',
+      region: regionEl ? regionEl.value : '',
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok) {

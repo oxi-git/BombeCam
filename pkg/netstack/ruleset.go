@@ -26,6 +26,9 @@ type RulesetConfig struct {
 	// MAC; there is deliberately no default.
 	Cameras          []string
 	BlockStreamSetup bool
+	// Region selects the Osaio endpoints the allowlist trusts ("us" or
+	// "eu"). Empty means the default (US).
+	Region policy.Region
 	// Optional return-path NAT when this box routes the camera subnet itself.
 	EnableMasq   bool
 	WANInterface string
@@ -86,7 +89,7 @@ func NewRulesetManager(cfg RulesetConfig) (*RulesetManager, error) {
 		return nil, err
 	}
 	// Validate subjects now so a bad MAC fails at startup, not at apply time.
-	if _, err := policy.Compile(subs, policy.Setting{BlockCloudVideo: true}, policy.Options{}); err != nil {
+	if _, err := policy.Compile(subs, policy.Setting{BlockCloudVideo: true, Region: cfg.Region}, policy.Options{}); err != nil {
 		return nil, err
 	}
 	rcfg := nftables.DefaultConfig()
@@ -105,9 +108,12 @@ func NewRulesetManager(cfg RulesetConfig) (*RulesetManager, error) {
 
 // Document compiles the policy for the given setting.
 func (m *RulesetManager) Document(block bool) (*policy.Document, error) {
-	return policy.Compile(m.subjects, policy.Setting{BlockCloudVideo: block},
+	return policy.Compile(m.subjects, policy.Setting{BlockCloudVideo: block, Region: m.cfg.Region},
 		policy.Options{BlockStreamSetup: m.cfg.BlockStreamSetup})
 }
+
+// Region returns the Osaio region the allowlist is built for.
+func (m *RulesetManager) Region() policy.Region { return m.cfg.Region.OrDefault() }
 
 // Resolved returns the currently allowed addresses per host.
 func (m *RulesetManager) Resolved() map[string][]net.IP {

@@ -931,3 +931,38 @@ func TestForgetRouterKeepsLastAddress(t *testing.T) {
 		t.Fatalf("privacy after forget: %+v", ps)
 	}
 }
+
+func TestAllowlistViewRegion(t *testing.T) {
+	us := allowlistView(false, policy.RegionUS)
+	if len(us) != 4 || us[0]["host"] != "mqtts02-us.osaio.net" {
+		t.Fatalf("US allowlist = %+v", us)
+	}
+	eu := allowlistView(false, policy.RegionEU)
+	if len(eu) != 5 {
+		t.Fatalf("EU allowlist has %d rules, want 5: %+v", len(eu), eu)
+	}
+	if eu[0]["host"] != "mqtts-eu.osaio.net" || eu[1]["host"] != "mqtts01-eu.osaio.net" {
+		t.Fatalf("EU control rules = %+v", eu[:2])
+	}
+	if eu[2]["host"] != "wss-eu.osaio.net" {
+		t.Fatalf("EU stream setup rule = %+v", eu[2])
+	}
+}
+
+func TestPrivacyRegionDefaults(t *testing.T) {
+	if got := privacyRegion(profile.PrivacySettings{}); got != policy.RegionUS {
+		t.Fatalf("empty region = %q, want us", got)
+	}
+	if got := privacyRegion(profile.PrivacySettings{Region: "EU"}); got != policy.RegionEU {
+		t.Fatalf("EU region = %q", got)
+	}
+	if got := privacyRegion(profile.PrivacySettings{Region: "bogus"}); got != policy.RegionUS {
+		t.Fatalf("bogus region = %q, want us", got)
+	}
+	if got := appliedRegion(profile.PrivacySettings{}); got != "us" {
+		t.Fatalf("empty applied region = %q, want us", got)
+	}
+	if got := appliedRegion(profile.PrivacySettings{AppliedRegion: "eu"}); got != "eu" {
+		t.Fatalf("applied region = %q", got)
+	}
+}

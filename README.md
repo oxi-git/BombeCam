@@ -51,7 +51,7 @@ The **Source code** archives that GitHub adds to every release are for [building
 - **A second Osaio login for BombeCam** (see Quick start, step 2).
 - **Windows 10/11 (64-bit)**, or **Linux** (amd64, arm64 or armv6/armv7), on the same network as the cameras.
 - **FFmpeg (optional):** adds camera sound to the browser's WebRTC view, powers push-to-talk and snapshots. Video works without it. On Windows: `winget install Gyan.FFmpeg`.
-- **For Block cloud video (optional):** a GL.iNet router on firmware 4.x or OpenWrt 21.02 or newer that your cameras connect to, or a Linux machine that routes the cameras' traffic. The allowlist currently uses Osaio's US-region servers; see [Block cloud video](#block-cloud-video).
+- **For Block cloud video (optional):** a GL.iNet router on firmware 4.x or OpenWrt 21.02 or newer that your cameras connect to, or a Linux machine that routes the cameras' traffic. The allowlist uses the Osaio servers of your account's region (US or EU); see [Block cloud video](#block-cloud-video).
 
 ## Supported cameras
 
@@ -210,8 +210,8 @@ Osaio can still see that the camera is online, your internet (IP) address, and w
 | Traffic from a blocked camera to | Result |
 |---|---|
 | Your own network (10.x, 172.16–31.x, 192.168.x), such as the BombeCam computer | Untouched |
-| Osaio control (`mqtts02-us.osaio.net`, TCP 8883) | Allowed, capped |
-| Osaio stream setup (`wss-us.osaio.net`, TCP 443) | Allowed, capped (can be blocked too) |
+| Osaio control (US: `mqtts02-us.osaio.net`; EU: `mqtts-eu.osaio.net`, `mqtts01-eu.osaio.net`; TCP 8883) | Allowed, capped |
+| Osaio stream setup (US: `wss-us.osaio.net`; EU: `wss-eu.osaio.net`; TCP 443) | Allowed, capped (can be blocked too) |
 | DNS (53) and time sync (UDP 123), IPv4 | Allowed, capped |
 | Everything else, including cloud clip and snapshot uploads, Osaio's relay servers and all IPv6 | Dropped |
 
@@ -221,7 +221,7 @@ When blocking turns on, the router also clears that camera's open connections, s
 
 **Same network:** a phone or tablet on the same network as a blocked camera may still show its live view in the Osaio app. That video travels directly over your own network, not the internet, so the camera is still blocked from sending video out. Away from your network, the app's live view has to come through Osaio's relay servers, which a blocked camera can't reach.
 
-**Region:** the allowlist uses Osaio's US-region control and stream-setup servers. Cameras on another Osaio region would lose their app controls while blocked.
+**Region:** the allowlist uses the control and stream-setup servers of one Osaio region. Choose **US** or **EU** under **Connect router → Advanced → Osaio region**; it defaults to US. A camera enrolled in a different region would lose its app controls while blocked, and BombeCam could not start new local streams, so set the region your Osaio account belongs to before blocking. Changing it reapplies the rules.
 
 **Connecting the router.** **Connect router** asks for the router's address and admin password once. BombeCam connects over SSH, installs its router script and adds its own SSH key, restricted on the router to the script's commands (apply the camera list, status, connections, version, uninstall): it can't open a shell or forward connections. The password is used for that one connection and is never saved. The router's SSH host key is remembered on first use, and BombeCam refuses to connect if it changes. **Disconnect** removes everything BombeCam put on the router.
 

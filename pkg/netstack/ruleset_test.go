@@ -93,13 +93,13 @@ func TestStateFailClosed(t *testing.T) {
 	if err != nil || !block || st.Status != StatusDegradedFailClosed {
 		t.Fatalf("missing state: block=%v status=%s err=%v", block, st.Status, err)
 	}
-	if err := sm.Persist(false, "", StatusRemoved); err != nil {
+	if err := sm.Persist(false, "", "", StatusRemoved); err != nil {
 		t.Fatal(err)
 	}
 	if block, st, _ = sm.RestoreOnBoot(); block || st.Status != StatusRemoved {
 		t.Fatalf("persisted No restored as block=%v status=%s", block, st.Status)
 	}
-	if err := sm.Persist(true, "table inet bombecam {}", ""); err != nil {
+	if err := sm.Persist(true, "", "table inet bombecam {}", ""); err != nil {
 		t.Fatal(err)
 	}
 	if block, st, _ = sm.RestoreOnBoot(); !block || st.RulesetHash == "" {

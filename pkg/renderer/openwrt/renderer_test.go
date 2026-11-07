@@ -24,15 +24,29 @@ var cams = []policy.Subject{
 
 func TestScriptPolicyConstantsMatchGo(t *testing.T) {
 	s := string(Script())
+	us, err := policy.RegionEndpoints(policy.RegionUS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eu, err := policy.RegionEndpoints(policy.RegionEU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us.ControlPort != eu.ControlPort || us.StreamSetupPort != eu.StreamSetupPort {
+		t.Fatalf("the script has one port pair; regions disagree: %+v vs %+v", us, eu)
+	}
 	want := map[string]string{
-		"CONTROL_HOST": policy.ControlHost,
-		"CONTROL_PORT": fmt.Sprint(policy.ControlPort),
-		"SETUP_HOST":   policy.StreamSetupHost,
-		"SETUP_PORT":   fmt.Sprint(policy.StreamSetupPort),
-		"CAP_BPS":      fmt.Sprint(policy.CapBytesPerSecond),
-		"CAP_BURST":    fmt.Sprint(policy.CapBurstBytes),
-		"LOCAL_NETS":   `"` + strings.Join(policy.DefaultLocalCIDRs, " ") + `"`,
-		"VERSION":      policy.Version,
+		"REGION":           string(policy.DefaultRegion),
+		"CONTROL_PORT":     fmt.Sprint(us.ControlPort),
+		"SETUP_PORT":       fmt.Sprint(us.StreamSetupPort),
+		"US_CONTROL_HOSTS": `"` + strings.Join(us.ControlHosts, " ") + `"`,
+		"US_SETUP_HOST":    us.StreamSetupHost,
+		"EU_CONTROL_HOSTS": `"` + strings.Join(eu.ControlHosts, " ") + `"`,
+		"EU_SETUP_HOST":    eu.StreamSetupHost,
+		"CAP_BPS":          fmt.Sprint(policy.CapBytesPerSecond),
+		"CAP_BURST":        fmt.Sprint(policy.CapBurstBytes),
+		"LOCAL_NETS":       `"` + strings.Join(policy.DefaultLocalCIDRs, " ") + `"`,
+		"VERSION":          policy.Version,
 	}
 	for k, v := range want {
 		re := regexp.MustCompile(`(?m)^` + k + `=(.*)$`)
@@ -74,6 +88,38 @@ func TestApplyArgs(t *testing.T) {
 	args, _ = ApplyArgs(off, policy.Options{})
 	if strings.Join(args, " ") != "apply no" {
 		t.Fatalf("No args = %v", args)
+	}
+}
+
+func TestApplyArgsEU(t *testing.T) {
+	doc, err := policy.Compile(cams, policy.Setting{BlockCloudVideo: true, Region: policy.RegionEU}, policy.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := ApplyArgs(doc, policy.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "apply|yes|--camera|Test Camera=aa:bb:cc:dd:ee:01|--camera|Porch=aa:bb:cc:dd:ee:02|--allow-stream-setup|--region|eu"
+	if got := strings.Join(args, "|"); got != want {
+		t.Fatalf("args = %s\nwant   %s", got, want)
+	}
+	// The gate spec carries the region for EU only; old scripts reject the
+	// line, so the default (US) must stay silent.
+	spec, err := ApplySpec(CamerasFromPolicy(doc), policy.Options{}, policy.RegionEU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(spec), "region eu\n") {
+		t.Fatalf("EU gate spec has no region line:\n%s", spec)
+	}
+	us, _ := policy.Compile(cams, policy.Setting{BlockCloudVideo: true}, policy.Options{})
+	usSpec, err := ApplySpec(CamerasFromPolicy(us), policy.Options{}, policy.RegionUS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(usSpec), "region ") {
+		t.Fatalf("US gate spec must not carry a region line:\n%s", usSpec)
 	}
 }
 
@@ -584,7 +630,7 @@ func TestScriptConnectGateUninstall(t *testing.T) {
 		b, err := cmd.CombinedOutput()
 		return string(b), err
 	}
-	spec, _ := ApplySpec([]Camera{{Name: "Test Camera", MAC: "AA:BB:CC:DD:EE:01"}, {Name: "Porch", MAC: "aa:bb:cc:dd:ee:02"}}, policy.Options{})
+	spec, _ := ApplySpec([]Camera{{Name: "Test Camera", MAC: "AA:BB:CC:DD:EE:01"}, {Name: "Porch", MAC: "aa:bb:cc:dd:ee:02"}}, policy.Options{}, policy.RegionUS)
 	out, err = gate(GateApply, string(spec))
 	if res, _ := ParseResult(out); err != nil || res.Block != "yes" || res.Fields["cameras"] != "2" || res.Fields["connected"] != "yes" {
 		t.Fatalf("gate apply failed (%v):\n%s", err, out)

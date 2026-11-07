@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Fever-r/BombeCam/pkg/netstack"
+	"github.com/Fever-r/BombeCam/pkg/policy"
 	"github.com/Fever-r/BombeCam/pkg/prober"
 	"github.com/Fever-r/BombeCam/pkg/verifier"
 )
@@ -37,6 +38,7 @@ func main() {
 		os.Exit(0)
 	}
 
+	regionFlag := flag.String("region", getEnvOrDefault("BOMBECAM_REGION", string(policy.DefaultRegion)), `Osaio region: "us" or "eu"`)
 	cameraID := flag.String("camera", getEnvOrDefault("CAMERA_ID", "default_camera"), "camera identifier")
 	cameraMAC := flag.String("mac", getEnvOrDefault("CAMERA_MAC", ""), "camera MAC address (required)")
 	cameraIP := flag.String("ip", getEnvOrDefault("CAMERA_IP", ""), "camera IP address (required)")
@@ -116,8 +118,14 @@ func main() {
 		}
 	}
 
+	region, rerr := policy.ParseRegion(*regionFlag)
+	if rerr != nil {
+		fmt.Fprintf(os.Stderr, "bombecam-verify: -region: %v\n", rerr)
+		os.Exit(2)
+	}
 	rules, err := netstack.NewRulesetManager(netstack.RulesetConfig{
 		Cameras:      subjectMACs(*cameraMAC, *canaryMAC),
+		Region:       region,
 		EnableMasq:   *wanIf != "",
 		WANInterface: *wanIf,
 		CameraSubnet: *cameraSubnet,
@@ -147,6 +155,7 @@ func main() {
 	}
 
 	cfg := verifier.DefaultConfig()
+	cfg.Region = region
 	cfg.CameraID = *cameraID
 	cfg.CameraMAC = *cameraMAC
 	cfg.CameraIP = *cameraIP

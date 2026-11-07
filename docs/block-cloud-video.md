@@ -12,7 +12,7 @@ Osaio can still see that the camera is online, your internet (IP) address, and w
 - **The cameras connect to that router** (its Wi-Fi or LAN). If your main router comes from your internet provider, a small GL.iNet travel router in Router mode can host the cameras.
 - **SSH access** as `root` with the router's admin password. GL.iNet has SSH on by default.
 - **Each camera's MAC address.** BombeCam learns it when the camera first streams to it and shows it in the Firewall tab. On the router, `bombecam-router clients` lists DHCP clients.
-- **Osaio US region.** The allowlist names Osaio's US-region control and stream-setup servers. Cameras on another region would lose their app controls while blocked.
+- **The Osaio region of your account.** The allowlist names one region's control and stream-setup servers: US (`mqtts02-us.osaio.net`, `wss-us.osaio.net`) or EU (`mqtts-eu.osaio.net`, `mqtts01-eu.osaio.net`, `wss-eu.osaio.net`). Pick it under **Connect router → Advanced → Osaio region**; US is the default. A camera enrolled in another region would lose its app controls while blocked, and BombeCam could not start new local streams.
 
 ## What the router does
 
@@ -21,13 +21,13 @@ For traffic from a blocked camera, matched by its MAC address:
 | Destination | Result |
 |---|---|
 | Your own network (10.x, 172.16–31.x, 192.168.x), such as the BombeCam computer | Untouched |
-| Osaio control, `mqtts02-us.osaio.net` TCP 8883 | Allowed, capped |
-| Osaio stream setup, `wss-us.osaio.net` TCP 443 | Allowed, capped (can be blocked too, see below) |
+| Osaio control, the region's hosts (US `mqtts02-us.osaio.net`; EU `mqtts-eu.osaio.net` and `mqtts01-eu.osaio.net`) TCP 8883 | Allowed, capped |
+| Osaio stream setup, the region's host (US `wss-us.osaio.net`; EU `wss-eu.osaio.net`) TCP 443 | Allowed, capped (can be blocked too, see below) |
 | DNS (port 53) and time sync (UDP 123), IPv4 | Allowed, capped |
 | Everything else, including cloud clip and snapshot uploads, Osaio's relay servers and all IPv6 | Dropped |
 
 - All allowed traffic of a camera shares one cap of 4 KB/s with an 8 KB burst. On fw3 routers without byte-rate limiting (`hashlimit`), the script falls back to 4 packets per second with a burst of 8; the result line shows `cap=bytes` or `cap=packets`.
-- The router resolves the two Osaio host names itself and re-checks them every 10 minutes.
+- The router resolves the region's Osaio host names itself and re-checks them every 10 minutes.
 - The rules only allow, drop and rate-limit. Nothing is redirected or rewritten, and the camera is not modified.
 - The cap cannot inspect encrypted traffic, so small images or very low-rate video could fit inside allowed connections.
 
@@ -108,6 +108,7 @@ The script installs itself as `/usr/sbin/bombecam-router`, so afterwards:
 ssh root@192.168.8.1 "bombecam-router status --names"   what is in force, counters, recent blocked attempts
 ssh root@192.168.8.1 "bombecam-router connections"      what the cameras are connected to right now
 ssh root@192.168.8.1 "bombecam-router render"           print the rules it would load, change nothing
+ssh root@192.168.8.1 "bombecam-router apply yes --camera \"Front Door=AA:BB:CC:DD:EE:FF\" --region eu"
 ssh root@192.168.8.1 "bombecam-router apply no"         stop blocking
 ssh root@192.168.8.1 "bombecam-router uninstall"        remove everything, including BombeCam's key
 ```
@@ -149,7 +150,7 @@ After a router firmware upgrade or reset, press **Connect router** again.
 
 | Message | What to do |
 |---|---|
-| `could not resolve mqtts02-us.osaio.net yet` | The router has no internet or DNS right now. Control stays blocked until the name resolves (retried every 10 minutes). |
+| `could not resolve <region host> yet` | The router has no internet or DNS right now, or the wrong region is selected. Control stays blocked until the name resolves (retried every 10 minutes). |
 | `no supported firewall found` | Not an OpenWrt/GL.iNet router, or its firewall is missing. |
 | Acceleration warning | Turn off **Network Acceleration** (GL.iNet admin panel, usually under Network), then press **Update router**. Accelerated connections can skip the rules and the cap. |
 | `access point, extender or WDS mode` warning | Switch the router to Router mode with the cameras on its Wi-Fi or LAN: bridged traffic never reaches the rules. |

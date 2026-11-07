@@ -58,6 +58,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	block := fs.String("block", "yes", "Block cloud video? yes or no")
 	target := fs.String("target", "json", "json | nftables | openwrt-script | openwrt-command")
 	blockSetup := fs.Bool("block-stream-setup", false, "also block Osaio's stream-setup server (may stop BombeCam starting local streams)")
+	regionFlag := fs.String("region", getEnvOrDefault("BOMBECAM_REGION", string(policy.DefaultRegion)), `Osaio region: "us" or "eu"`)
 	resolve := fs.Bool("resolve", false, "nftables: resolve the allowlisted host names now (otherwise their sets are empty)")
 	outputFile := fs.String("o", "", "write to this file instead of stdout")
 	if err := fs.Parse(args); err != nil {
@@ -95,8 +96,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 2
 	}
+	region, err := policy.ParseRegion(*regionFlag)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: -region: %v\n", err)
+		return 2
+	}
 	opts := policy.Options{BlockStreamSetup: *blockSetup}
-	doc, err := policy.Compile(subs, policy.Setting{BlockCloudVideo: on}, opts)
+	doc, err := policy.Compile(subs, policy.Setting{BlockCloudVideo: on, Region: region}, opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1

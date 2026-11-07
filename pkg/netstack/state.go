@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Fever-r/BombeCam/pkg/policy"
 )
 
 // Persistent state for bombecam-net on a Linux router: the "Block cloud video"
@@ -32,6 +34,7 @@ const (
 // PersistedState is stored in state.json.
 type PersistedState struct {
 	BlockCloudVideo  bool      `json:"block_cloud_video"`
+	Region           string    `json:"region,omitempty"`
 	Status           string    `json:"status"`
 	RulesetHash      string    `json:"ruleset_hash"`
 	LastTransition   time.Time `json:"last_transition"`
@@ -63,7 +66,7 @@ func NewStateManager(stateDir string) *StateManager {
 }
 
 // Persist atomically writes the setting, ruleset and metadata.
-func (sm *StateManager) Persist(block bool, ruleset string, status string) error {
+func (sm *StateManager) Persist(block bool, region policy.Region, ruleset string, status string) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if err := os.MkdirAll(sm.StateDir, 0o750); err != nil {
@@ -86,6 +89,7 @@ func (sm *StateManager) Persist(block bool, ruleset string, status string) error
 	}
 	data, err := json.MarshalIndent(PersistedState{
 		BlockCloudVideo:  block,
+		Region:           string(region.OrDefault()),
 		Status:           status,
 		RulesetHash:      hash,
 		LastTransition:   now,

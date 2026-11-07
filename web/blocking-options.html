@@ -155,7 +155,7 @@
 
     <section class="info-method" id="own-firewall">
       <h2>Your own firewall rules</h2>
-      <p>On a firewall you run yourself (pfSense, OPNsense, UniFi, MikroTik and similar) you can write the same rules BombeCam uses: for the camera, allow <code>mqtts02-us.osaio.net</code> TCP 8883 and <code>wss-us.osaio.net</code> TCP 443, DNS (port 53) and time sync (UDP 123), then block everything else, IPv4 and IPv6.</p>
+      <p>On a firewall you run yourself (pfSense, OPNsense, UniFi, MikroTik and similar) you can write the same rules BombeCam uses: for the camera, allow the Osaio control server (US: <code>mqtts02-us.osaio.net</code>, EU: <code>mqtts-eu.osaio.net</code> or <code>mqtts01-eu.osaio.net</code>) TCP 8883 and the stream-setup server (US: <code>wss-us.osaio.net</code>, EU: <code>wss-eu.osaio.net</code>) TCP 443, DNS (port 53) and time sync (UDP 123), then block everything else, IPv4 and IPv6.</p>
       <div class="info-proscons">
         <div><h3>Pros</h3><ul>
           <li>Works with gear you already trust and manage.</li>
