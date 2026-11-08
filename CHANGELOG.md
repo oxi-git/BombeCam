@@ -6,6 +6,9 @@
 - The allowlist now supports the EU Osaio region as well as the US one: EU cameras keep their control channel (`mqtts-eu.osaio.net`, `mqtts01-eu.osaio.net`) and the stream-setup handshake (`wss-eu.osaio.net`). Choose the region under **Connect router → Advanced → Osaio region**; US stays the default, and changing it reapplies the rules. A camera on the wrong region loses its app controls while blocked.
 - `bombecam-net` and `bombecam-verify` take `-region us|eu` (or `BOMBECAM_REGION`); `bombecam-policy` takes `-region`; the Docker `isolation` profile reads `BOMBECAM_REGION`.
 
+**Gateway**
+- A LAN client such as Home Assistant can call the PTZ API with a Bearer API token; `-allowed-hosts` (or `BOMBECAM_ALLOWED_HOSTS`) lets a LAN name such as `bombecam.lan` pass the Host guard. The default stays `127.0.0.1` with no extra host names. README → Pan and tilt from Home Assistant over HTTP has the exact `rest_command`.
+
 ## 1.0.0 — first public release
 
 **Gateway**
