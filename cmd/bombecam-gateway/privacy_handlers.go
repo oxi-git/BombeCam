@@ -798,6 +798,7 @@ func privacyStatus(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 		"block_stream_setup": false, "error": "",
 	}
 	var localErr error
+	localRegion := ""
 	if backend == profile.FirewallBackendLocal {
 		// Only the local backend contacts the daemon: a router profile must
 		// not depend on it being installed.
@@ -824,6 +825,7 @@ func privacyStatus(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 			if camsOut == nil {
 				camsOut = []string{}
 			}
+			localRegion = st.Region
 			localView = map[string]any{
 				"url": localURL, "reachable": true,
 				"block_cloud_video": st.BlockCloudVideo, "applied": st.Applied,
@@ -891,7 +893,7 @@ func privacyStatus(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 		"suggested_router_source":  suggestion.Source,
 		"cap_bytes_per_second":     policy.CapBytesPerSecond,
 		"region":                   string(region),
-		"applied_region":           appliedRegion(ps),
+		"applied_region":           appliedRegionView(backend, localRegion, ps),
 		"allowlist":                allowlistView(ps.BlockStreamSetup, region),
 		"block_stream_setup":       ps.BlockStreamSetup,
 		"router": map[string]any{
@@ -968,6 +970,18 @@ func appliedRegion(ps profile.PrivacySettings) string {
 		return string(policy.DefaultRegion)
 	}
 	return ps.AppliedRegion
+}
+
+// appliedRegionView returns the region actually in force for the status view.
+// The local backend applies its own region, so report that one when the daemon
+// reports it; otherwise fall back to the region recorded for the router.
+func appliedRegionView(backend, localRegion string, ps profile.PrivacySettings) string {
+	if backend == profile.FirewallBackendLocal && localRegion != "" {
+		if r, err := policy.ParseRegion(localRegion); err == nil {
+			return string(r)
+		}
+	}
+	return appliedRegion(ps)
 }
 
 func allowlistView(blockStreamSetup bool, region policy.Region) []map[string]any {

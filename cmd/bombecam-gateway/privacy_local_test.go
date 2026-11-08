@@ -109,6 +109,9 @@ func TestPrivacyLocalInSync(t *testing.T) {
 	if local["reachable"] != true || local["region"] != "eu" {
 		t.Fatalf("local = %+v", local)
 	}
+	if st["applied_region"] != "eu" {
+		t.Fatalf("applied_region = %v, want the local region eu", st["applied_region"])
+	}
 	if n := len(f.applied()); n != 0 {
 		t.Fatalf("an in-sync status must not apply anything (%d applies)", n)
 	}

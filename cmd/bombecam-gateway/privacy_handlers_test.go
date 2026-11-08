@@ -966,3 +966,25 @@ func TestPrivacyRegionDefaults(t *testing.T) {
 		t.Fatalf("applied region = %q", got)
 	}
 }
+
+func TestAppliedRegionView(t *testing.T) {
+	// The local backend applies its own region: report the daemon's.
+	if got := appliedRegionView(profile.FirewallBackendLocal, "eu", profile.PrivacySettings{}); got != "eu" {
+		t.Fatalf("local applied region = %q, want eu", got)
+	}
+	// Without a local region there is nothing better to report, so fall back
+	// to the router record as before.
+	if got := appliedRegionView(profile.FirewallBackendLocal, "", profile.PrivacySettings{}); got != "us" {
+		t.Fatalf("empty local applied region = %q, want us", got)
+	}
+	if got := appliedRegionView(profile.FirewallBackendLocal, "", profile.PrivacySettings{AppliedRegion: "eu"}); got != "eu" {
+		t.Fatalf("empty local applied region with router record = %q, want eu", got)
+	}
+	// The router backend keeps reporting what the router last applied.
+	if got := appliedRegionView(profile.FirewallBackendRouter, "eu", profile.PrivacySettings{}); got != "us" {
+		t.Fatalf("router applied region = %q, want us", got)
+	}
+	if got := appliedRegionView(profile.FirewallBackendRouter, "eu", profile.PrivacySettings{AppliedRegion: "eu"}); got != "eu" {
+		t.Fatalf("router applied region = %q, want eu", got)
+	}
+}
