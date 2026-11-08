@@ -1,6 +1,11 @@
 # Build outputs
 bin/
+# Binaries left in the repository root by a plain `go build ./cmd/...`
 /bombecam-gateway
+/bombecam-net
+/bombecam-policy
+/bombecam-verify
+/bombecam-certgen
 *.exe
 *.test
 coverage*
