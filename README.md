@@ -254,6 +254,8 @@ The gateway exposes `POST /api/v1/cameras/{id}/ptz` for programmatic clients. Th
              duration_ms: 400
    ```
 
+**Transport.** This API is plain HTTP with no TLS: the administrator password used to mint the token, and the token in every later call, travel in clear text over your network. Keep port 8654 on your own LAN or behind a VPN, never forward it from the internet, and mint the token on the BombeCam computer as shown. A token stays valid until it is removed from `api_tokens.json`, so anyone who can read that traffic can replay it.
+
 `direction` accepts `left`, `right`, `up`, `down`, `stop` (or `1`–`4`, `0`); when omitted, `duration_ms` defaults to 400 ms. The gateway sends the stop command itself when the time is up. The local MQTT control transport accepts at most 2000 ms per pulse, so use short pulses and repeat them for a longer pan; on a local-control setup a longer value fails with HTTP 503. A successful call returns `{"ok": true, "camera": "...", "uuid": "...", "direction": 1, "direction_name": "left", "duration_ms": 400, "transport": "..."}`. Without a token the route answers `401`; an unknown camera `404`; an unreachable control transport `503`.
 
 ## How BombeCam works
