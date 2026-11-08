@@ -172,6 +172,19 @@ func getEnvOrDefault(envKey, defVal string) string {
 	return defVal
 }
 
+// splitAllowedHosts parses the comma-separated extra Host header names, so a
+// page reached through a LAN name (for example bombecam.lan) passes the
+// DNS-rebinding guard. Empty entries are ignored; defaults stay closed.
+func splitAllowedHosts(raw string) []string {
+	var hosts []string
+	for _, part := range strings.Split(raw, ",") {
+		if h := strings.TrimSpace(part); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
+}
+
 // envInt reads a whole number from the environment.
 func envInt(key string, def int) int {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
@@ -443,6 +456,7 @@ func main() {
 	noSupervisorEnv := strings.ToLower(getEnvOrDefault("BOMBECAM_NO_MEDIAMTX_SUPERVISOR", "false"))
 	noMediamtxSupervisorFlag := flag.Bool("no-mediamtx-supervisor", noSupervisorEnv == "true" || noSupervisorEnv == "1" || noSupervisorEnv == "yes", "disable automatic MediaMTX supervisor")
 	httpAddr := flag.String("http", getEnvOrDefault("OSAIO_HTTP", "127.0.0.1:8654"), "HTTP control API listen address (or env OSAIO_HTTP)")
+	allowedHostsFlag := flag.String("allowed-hosts", getEnvOrDefault("BOMBECAM_ALLOWED_HOSTS", ""), "extra host names accepted in the Host header, comma-separated (or env BOMBECAM_ALLOWED_HOSTS)")
 	// Camera controls go through the vendor signaling WebSocket by default on
 	// every platform. The local MQTT shadow shim only works once cameras trust a
 	// local broker, so it stays opt-in (-control-transport mqtt).
@@ -700,7 +714,8 @@ func main() {
 	// Initialize local operator auth & security boundary manager
 	keyFile := filepath.Join(profDir, "api_tokens.json")
 	opMgr := auth.NewOperatorManager(auth.OperatorConfig{
-		KeyFile: keyFile,
+		KeyFile:      keyFile,
+		AllowedHosts: splitAllowedHosts(*allowedHostsFlag),
 	})
 	SetGatewayOperatorManager(opMgr)
 
