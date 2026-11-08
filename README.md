@@ -173,12 +173,88 @@ The **Streams & ports** tab lists each camera's addresses. **Full Frigate / Home
 - **Frigate.** Paste the generated block into Frigate's **Configuration editor**. It adds each camera to go2rtc (live view with sound), records with the camera's own AAC audio, and runs detection at 5 fps. A complete starter configuration is on the page too.
 - **Home Assistant.** **Settings → Devices & services → Add integration → Generic Camera**, then paste the **Stream source URL** (and the **Still image URL** if snapshots are on).
 - **Camera controls in Home Assistant (optional).** With an MQTT broker (for example Home Assistant's Mosquitto add-on) and the MQTT integration, turn on **MQTT** on the page. Each camera then appears as a device with night vision, status light, motion and sound detection, spotlight, pan/tilt buttons and a connection status.
+- **Pan/tilt from Home Assistant without MQTT (optional).** Home Assistant can call the gateway's REST API directly. Start BombeCam so other devices can reach it (`-http 0.0.0.0:8654`), mint an API token once on the BombeCam computer, and use it in a `rest_command`; see [Pan and tilt from Home Assistant over HTTP](#pan-and-tilt-from-home-assistant-over-http).
 - **Stream password (optional).** When on, other devices need the user name `bombecam` and a generated password; the addresses on the page include them. This computer never needs it.
 - **Snapshots (optional).** A JPEG of the current picture on port 8655, for example for Home Assistant's still image. Needs FFmpeg.
 - **Ports:** RTSP 8554, HLS 8888, WebRTC 8889 (TCP) and 8189 (UDP), snapshots 8655. They can be changed on the page.
 - **Which address?** BombeCam uses the network adapter that has the internet connection. With several adapters (Wi-Fi and Ethernet, a VPN, Docker), pick one on the page.
 - **Another device can't connect?** Allow `mediamtx.exe` (streams) and `bombecam.exe` (snapshots) through Windows Firewall on **Private** networks. If Windows treats your home network as **Public**, the page warns you; change it under **Settings → Network & internet → (your connection) → Network profile type → Private**.
 - **Quick check:** in VLC use **Media → Open Network Stream** with the RTSP address, or run `ffprobe -rtsp_transport tcp rtsp://...`.
+
+### Pan and tilt from Home Assistant over HTTP
+
+The gateway exposes `POST /api/v1/cameras/{id}/ptz` for programmatic clients. The Host, Origin and sign-in guards apply to it like every other API route, so a LAN client authenticates with an API token: a bearer token also needs no CSRF header. Nothing else is opened by this recipe.
+
+1. Make the API reachable from the LAN: start BombeCam with `-http 0.0.0.0:8654` (the default `127.0.0.1:8654` accepts this computer only). If you address the gateway by a name, for example `bombecam.lan`, list that name with `-allowed-hosts bombecam.lan` (or `BOMBECAM_ALLOWED_HOSTS`). IP addresses always pass the Host guard, so the usual `http://192.168.1.20:8654` needs no extra option.
+2. Mint an API token once, on the BombeCam computer, with the **BombeCam administrator** name and password (an Osaio password does not work here):
+
+   ```bash
+   curl -sS -u 'admin:YOUR_BOMBECAM_PASSWORD' -X POST http://127.0.0.1:8654/api/v1/operator/token
+   # {"ok":true,"token":"bc_tok_..."}
+   ```
+
+   Replace `admin` with the administrator name you chose at first start. Add `-H 'X-BombeCam-Code: 123456'` when two-step sign-in is on. Tokens are kept in `api_tokens.json` next to the profile and survive a restart.
+3. Find the camera id: it is the `id` value for the WS03 in `GET /api/v1/inventory/discover` (the Osaio UUID):
+
+   ```bash
+   curl -sS -H 'Authorization: Bearer bc_tok_...' http://127.0.0.1:8654/api/v1/inventory/discover
+   ```
+4. Add the command and a script to Home Assistant. Replace `192.168.1.20` with the BombeCam computer's LAN address and `OSAIO_CAMERA_ID` with the id from step 3; keep the rest as is.
+
+   ```yaml
+   # configuration.yaml
+   rest_command:
+     bombecam_ws03_ptz:
+       url: "http://192.168.1.20:8654/api/v1/cameras/OSAIO_CAMERA_ID/ptz"
+       method: POST
+       headers:
+         Authorization: !secret bombecam_authorization
+         Content-Type: "application/json"
+       payload: >-
+         {"direction": "{{ direction }}", "duration_ms": {{ duration_ms | int(400) }}}
+       timeout: 5
+
+   script:
+     ws03_ptz:
+       fields:
+         direction:
+           selector:
+             select:
+               options: [left, right, up, down, stop]
+         duration_ms:
+           default: 400
+           selector:
+             number:
+               min: 0
+               max: 2000
+               unit_of_measurement: ms
+       sequence:
+         - action: rest_command.bombecam_ws03_ptz
+           data:
+             direction: "{{ direction }}"
+             duration_ms: "{{ duration_ms }}"
+   ```
+
+   ```yaml
+   # secrets.yaml
+   bombecam_authorization: "Bearer bc_tok_..."
+   ```
+5. Call it from an automation or a dashboard button. For example, `input_button.ws03_left` pans left for 400 ms:
+
+   ```yaml
+   automation:
+     - alias: "WS03: pan left"
+       triggers:
+         - trigger: state
+           entity_id: input_button.ws03_left
+       actions:
+         - action: script.ws03_ptz
+           data:
+             direction: left
+             duration_ms: 400
+   ```
+
+`direction` accepts `left`, `right`, `up`, `down`, `stop` (or `1`–`4`, `0`); when omitted, `duration_ms` defaults to 400 ms. The gateway sends the stop command itself when the time is up. The local MQTT control transport accepts at most 2000 ms per pulse, so use short pulses and repeat them for a longer pan; on a local-control setup a longer value fails with HTTP 503. A successful call returns `{"ok": true, "camera": "...", "uuid": "...", "direction": 1, "direction_name": "left", "duration_ms": 400, "transport": "..."}`. Without a token the route answers `401`; an unknown camera `404`; an unreachable control transport `503`.
 
 ## How BombeCam works
 
@@ -229,7 +305,7 @@ Details, manual setup without BombeCam, and how to check that blocking works: [d
 
 ## Security and privacy
 
-- **Web page and API** listen on `127.0.0.1:8654` by default, so only this computer can use them. BombeCam has its own **administrator** sign-in, created on this computer at first start; Osaio logins never sign anyone in to BombeCam. If you make the page reachable from the LAN (`-http 0.0.0.0:8654`), other devices must sign in as the administrator before they can see or change anything. On this computer the page opens without signing in unless you chose **Also ask for this sign-in on this PC**. Optional **two-step sign-in** asks for a code from an authenticator app (one-time recovery codes cover a lost phone). Five wrong passwords or codes from one address lock it out for 10 minutes. Passwords are stored as Argon2id hashes inside the encrypted profile. Cross-origin and DNS-rebinding requests are rejected. For a machine whose page you only open from other devices (no browser on it), set `BOMBECAM_ADMIN_PASSWORD` (and optionally `BOMBECAM_ADMIN_NAME`) once to create the administrator at start-up.
+- **Web page and API** listen on `127.0.0.1:8654` by default, so only this computer can use them. BombeCam has its own **administrator** sign-in, created on this computer at first start; Osaio logins never sign anyone in to BombeCam. If you make the page reachable from the LAN (`-http 0.0.0.0:8654`), other devices must sign in as the administrator before they can see or change anything. On this computer the page opens without signing in unless you chose **Also ask for this sign-in on this PC**. Optional **two-step sign-in** asks for a code from an authenticator app (one-time recovery codes cover a lost phone). Five wrong passwords or codes from one address lock it out for 10 minutes. Passwords are stored as Argon2id hashes inside the encrypted profile. Cross-origin and DNS-rebinding requests are rejected; IP addresses pass the Host check, and a name you reach the page through must be listed with `-allowed-hosts`. For a machine whose page you only open from other devices (no browser on it), set `BOMBECAM_ADMIN_PASSWORD` (and optionally `BOMBECAM_ADMIN_NAME`) once to create the administrator at start-up.
 - **Streams** (RTSP, HLS, WebRTC) can be read by any device on your network, so NVRs can connect without setup. Turn on the **stream password** to require a user name and password. Only BombeCam on this computer may publish streams or use MediaMTX's management API, which listens on `127.0.0.1` only.
 - **Stored data:** your Osaio logins, camera list, settings and BombeCam's router key are stored in an AES-256-GCM encrypted profile: on Windows in `%LOCALAPPDATA%\Bombecam\` with the key protected by Windows DPAPI; on Linux in the data directory described above, with a key file readable only by its owner. A server key or app ID saved from the web page is kept next to it in `server.key` or `app.id`, readable only by your user. Passwords, the server key and the app ID are never written to logs.
 - **Router access:** see [Connecting the router](#block-cloud-video).
@@ -264,6 +340,8 @@ Every option can also be set with the environment variable shown.
 
 ```
 -http string              web page / API address (default 127.0.0.1:8654; OSAIO_HTTP)
+-allowed-hosts string     extra host names accepted in the Host header, comma-separated, for example
+                          bombecam.lan; IP addresses always pass (BOMBECAM_ALLOWED_HOSTS)
 -headless                 don't open a browser or show a tray icon (BOMBECAM_HEADLESS)
 -startup                  started with Windows at sign-in: don't open the browser
 -ffmpeg string            FFmpeg path (default: search next to the exe, the cache folder, PATH, winget/scoop/choco; FFMPEG_PATH)
