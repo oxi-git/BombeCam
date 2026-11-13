@@ -497,6 +497,8 @@ type haCameraConfig struct {
 	LiveStreamURL       string             `json:"live_stream_url"`
 	StillImageURL       *string            `json:"still_image_url"`
 	StillImageAvailable bool               `json:"still_image_available"`
+	RecordingAvailable  bool               `json:"recording_available"`
+	LatestRecordingURL  *string            `json:"latest_recording_url"`
 	VideoCodec          string             `json:"video_codec"`
 	AudioCodec          string             `json:"audio_codec"`
 	PortMappings        streamPortMappings `json:"port_mappings"`
@@ -579,7 +581,7 @@ func handleHomeAssistantIntegration(w http.ResponseWriter, r *http.Request, stre
 			all.WriteString("\n")
 		}
 		all.WriteString(steps)
-		out = append(out, haCameraConfig{
+		cam := haCameraConfig{
 			UUID: c.ID, Name: c.Name, Model: c.Model, StreamName: c.StreamName, Streaming: c.Streaming,
 			RTSPURL: c.RTSPURL, RTSPURLByID: c.RTSPURLByID, LiveStreamURL: c.HLSURL,
 			StillImageURL: still, StillImageAvailable: still != nil,
@@ -590,7 +592,13 @@ func handleHomeAssistantIntegration(w http.ResponseWriter, r *http.Request, stre
 			GenericCamera: g,
 			Controls:      controls,
 			SetupSteps:    steps,
-		})
+		}
+		if rel := latestRecording(c.ID); rel != "" {
+			cam.RecordingAvailable = true
+			u := strings.TrimRight(gatewayBase, "/") + "/api/v1/recordings/download?path=" + url.QueryEscape(rel)
+			cam.LatestRecordingURL = &u
+		}
+		out = append(out, cam)
 	}
 	if len(cams) == 0 {
 		all.WriteString("No cameras have been added to BombeCam yet.\n")

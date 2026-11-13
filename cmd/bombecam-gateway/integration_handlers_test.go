@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -325,6 +326,149 @@ func TestIntegrations_HomeAssistant_JSON(t *testing.T) {
 		*resp.Cameras[0].StillImageURL != "http://192.168.1.20:8655/api/v1/cameras/cam-uuid-1/snapshot.jpg" || !resp.Cameras[0].Controls.MQTTDiscovery {
 		t.Fatalf("with snapshots and MQTT: %s", rr.Body.String())
 	}
+}
+
+// TestHomeAssistantContractPinsAPI parses the raw /api/v1/integrations/
+// homeassistant answer as plain JSON and pins the exact field names the
+// Home Assistant integration (ha-bombecam) reads in api.py. Renaming any of
+// these fields in a struct must fail this test, so the two projects stay in
+// step. This is a contract test, not a behaviour one: it does not care what
+// the values are, only that the field names survive.
+func TestHomeAssistantContractPinsAPI(t *testing.T) {
+	_, mux, _ := setupIntegrationsTestEnv(t)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/integrations/homeassistant", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+
+	// Gateway block.
+	gateway, ok := raw["gateway"].(map[string]any)
+	if !ok {
+		t.Fatal(`payload has no "gateway" object`)
+	}
+	for _, field := range []string{"base_url", "rtsp_base", "hls_base"} {
+		if _, exists := gateway[field]; !exists {
+			t.Errorf(`gateway lacks the Home Assistant contract field %q`, field)
+		}
+	}
+
+	// Each camera block: check only that the camera has the fields HA reads.
+	rawCams, ok := raw["cameras"].([]any)
+	if !ok || len(rawCams) == 0 {
+		t.Fatal(`payload has no "cameras" array`)
+	}
+	for _, rc := range rawCams {
+		cam, ok := rc.(map[string]any)
+		if !ok {
+			t.Fatal("a camera entry is not an object")
+		}
+		for _, field := range []string{"uuid", "name", "model", "streaming", "rtsp_url", "still_image_url", "stream_name", "recording_available", "latest_recording_url"} {
+			if _, exists := cam[field]; !exists {
+				t.Errorf(`camera lacks the Home Assistant contract field %q`, field)
+			}
+		}
+	}
+}
+
+// TestHomeAssistantContractRecording pins recording_available / latest_recording_url
+// once a recorded segment exists for a camera.
+func TestHomeAssistantContractRecording(t *testing.T) {
+	_, mux, _ := setupIntegrationsTestEnv(t)
+
+	// A real recording for cam-uuid-1 (the publish path is the UUID).
+	root := t.TempDir()
+	camDir := root + "/cam-uuid-1"
+	if err := os.MkdirAll(camDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(camDir+"/2026-11-13_10-00-00.mp4", []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setRecordingsRoot(root)
+	defer setRecordingsRoot("")
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/integrations/homeassistant?camera=cam-uuid-1", nil)
+	req.Host = "192.0.2.10:8654"
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp haIntegrationResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Cameras) != 1 {
+		t.Fatalf("expected 1 camera, got %d", len(resp.Cameras))
+	}
+	cam := resp.Cameras[0]
+	if !cam.RecordingAvailable || cam.LatestRecordingURL == nil {
+		t.Fatalf("recording fields missing: %+v", cam)
+	}
+	want := "http://192.0.2.10:8654/api/v1/recordings/download?path=cam-uuid-1%2F2026-11-13_10-00-00.mp4"
+	if *cam.LatestRecordingURL != want {
+		t.Errorf("latest_recording_url = %q, want %q", *cam.LatestRecordingURL, want)
+	}
+}
+
+// TestShadowContractPinsAPI pins the raw /api/v1/cameras/{uuid}/shadow answer
+// the Home Assistant integration reads in api.async_get_shadow:
+// state.reported with the five attribute names the switches/select use.
+func TestShadowContractPinsAPI(t *testing.T) {
+	// A fake control channel that answers camera readback through
+	// GetAttributes, the path the production SignalingControlChannel uses for
+	// the detection switches (the plain mock returns nothing for them).
+	fake := &attrFakeControl{reported: map[string]any{
+		"IrLedMode": float64(1), "LedOnOff": float64(1), "LightSW": float64(1),
+		"MotionDetectSW": float64(1), "SoundDetectSW": float64(0),
+	}}
+
+	sm, mux, _ := setupIntegrationsTestEnv(t)
+	if _, err := sm.Enroll([]string{"cam-uuid-1"}, []bridge.Device{{UUID: "cam-uuid-1", Name: "Porch", Type: "WS03"}}); err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	// After setup so setupFullTestEnvironment's generic mock does not wipe it.
+	SetGatewayControlChannel(fake)
+	defer SetGatewayControlChannel(nil)
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/cameras/cam-uuid-1/shadow", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	state, ok := raw["state"].(map[string]any)
+	if !ok {
+		t.Fatal(`shadow has no "state" object`)
+	}
+	reported, ok := state["reported"].(map[string]any)
+	if !ok {
+		t.Fatal(`state has no "reported" object`)
+	}
+	for _, attr := range []string{"IrLedMode", "LedOnOff", "LightSW", "MotionDetectSW", "SoundDetectSW"} {
+		if _, exists := reported[attr]; !exists {
+			t.Errorf(`shadow lacks the Home Assistant contract attribute %q`, attr)
+		}
+	}
+}
+
+// attrFakeControl is a ControlChannel that answers readCameraAttributes'
+// GetAttributes branch, mimicking the real SignalingControlChannel.
+type attrFakeControl struct {
+	bridge.ControlChannel
+	reported map[string]any
+}
+
+func (f *attrFakeControl) GetAttributes(_ context.Context, _ string, _ ...string) (map[string]any, error) {
+	return f.reported, nil
 }
 
 // 5. Home Assistant as text (?format=text, and ?format=yaml for old callers).

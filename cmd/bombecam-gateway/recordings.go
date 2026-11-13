@@ -164,3 +164,15 @@ func inside(root, candidate string) bool {
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
+
+// latestRecording returns the newest recorded segment for one stream path
+// (a camera), as a relative forward-slash path, or "" when recording is off
+// or that stream has no segments yet. listRecordings returns newest first.
+func latestRecording(stream string) string {
+	for _, r := range listRecordings() {
+		if r.Stream == stream {
+			return r.Path
+		}
+	}
+	return ""
+}
