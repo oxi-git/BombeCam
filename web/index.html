@@ -478,6 +478,46 @@
         <div class="card">
           <div class="card-header">
             <div>
+              <h2 class="card-title">SD Card</h2>
+              <p class="card-subtitle">Recordings stored on the camera's microSD card. Requires Osaio sign-in.</p>
+            </div>
+            <button id="btn-refresh-sdcard" class="btn btn-secondary btn-sm">🔄 Refresh</button>
+          </div>
+          <div class="card-body">
+            <div id="sdcard-info" class="sdcard-info" hidden>
+              <div class="sdcard-stats">
+                <div class="sdcard-stat">
+                  <span class="sdcard-stat-label">Total</span>
+                  <span class="sdcard-stat-value" id="sdcard-total">-</span>
+                </div>
+                <div class="sdcard-stat">
+                  <span class="sdcard-stat-label">Used</span>
+                  <span class="sdcard-stat-value" id="sdcard-used">-</span>
+                </div>
+                <div class="sdcard-stat">
+                  <span class="sdcard-stat-label">Free</span>
+                  <span class="sdcard-stat-value" id="sdcard-free">-</span>
+                </div>
+                <div class="sdcard-stat">
+                  <span class="sdcard-stat-label">Status</span>
+                  <span class="sdcard-stat-value" id="sdcard-status">-</span>
+                </div>
+              </div>
+              <div class="sdcard-progress">
+                <div class="sdcard-progress-bar">
+                  <div class="sdcard-progress-fill" id="sdcard-progress-fill" style="width: 0%"></div>
+                </div>
+              </div>
+            </div>
+            <div id="sdcard-recordings" class="stream-list">
+              <div class="text-muted" id="sdcard-empty">Select a camera to load SD card recordings.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
               <h2 class="card-title">Ports on this PC</h2>
               <p class="card-subtitle">What other devices connect to. Ports can be changed on the <a href="/integrations.html">Frigate / Home Assistant page</a>.</p>
             </div>

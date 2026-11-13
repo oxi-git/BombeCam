@@ -340,6 +340,7 @@ function switchTab(tabId) {
   if (tabId === 'tab-streams') {
     loadNVRSnippets();
     loadRecordings();
+    loadSDCard();
   } else if (tabId === 'tab-cameras') {
     renderCamerasTab();
   } else if (tabId === 'tab-logins') {
@@ -3227,6 +3228,115 @@ async function loadRecordings() {
   }
 }
 
+// SD Card (Streams & ports tab). Lists recordings on camera's microSD card.
+async function loadSDCard() {
+  const btn = document.getElementById('btn-refresh-sdcard');
+  const list = document.getElementById('sdcard-recordings');
+  const infoEl = document.getElementById('sdcard-info');
+  if (!list) return;
+  if (btn) btn.disabled = true;
+  try {
+    const camerasRes = await apiRequest('/api/v1/integrations/streams');
+    if (!camerasRes.ok) throw new Error('No cameras');
+    const cameras = (await camerasRes.json()).cameras || [];
+    if (cameras.length === 0) {
+      list.innerHTML = '<div class="text-muted">No cameras enrolled.</div>';
+      if (infoEl) infoEl.hidden = true;
+      return;
+    }
+    const cam = cameras[0];
+    const camId = cam.uuid || cam.id;
+    
+    const infoRes = await apiRequest('/api/v1/cameras/' + encodeURIComponent(camId) + '/sdcard');
+    if (infoRes.ok) {
+      const info = await infoRes.json();
+      if (infoEl) infoEl.hidden = false;
+      document.getElementById('sdcard-total').textContent = formatBytes(info.total_space);
+      document.getElementById('sdcard-used').textContent = formatBytes(info.used_space);
+      document.getElementById('sdcard-free').textContent = formatBytes(info.free_space);
+      const statusText = {0: 'Normal', 1: 'Error', 2: 'No card', 3: 'Full'}[info.status] || 'Unknown (' + info.status + ')';
+      document.getElementById('sdcard-status').textContent = statusText + (info.status_text ? ' - ' + info.status_text : '');
+      if (info.total_space > 0) {
+        const pct = (info.used_space / info.total_space) * 100;
+        document.getElementById('sdcard-progress-fill').style.width = Math.min(100, Math.max(0, pct)) + '%';
+      }
+    } else {
+      if (infoEl) infoEl.hidden = true;
+    }
+    
+    const recRes = await apiRequest('/api/v1/cameras/' + encodeURIComponent(camId) + '/sdcard/recordings');
+    if (!recRes.ok) {
+      list.innerHTML = '<div class="text-muted">Could not load SD card recordings (requires Osaio sign-in).</div>';
+      return;
+    }
+    const recData = await recRes.json();
+    const recs = recData.recordings || [];
+    if (recs.length === 0) {
+      list.innerHTML = '<div class="text-muted">No recordings on SD card.</div>';
+      return;
+    }
+    const esc = v => String(v).replace(/[&<>"']/g, c => ({'&':'&','<':'<','>':'>','"':'"',"'":'''}[c]));
+    const rows = recs.map(r => {
+      const start = r.start_time ? new Date(r.start_time * 1000).toLocaleString() : '?';
+      const end = r.end_time ? new Date(r.end_time * 1000).toLocaleString() : '?';
+      const size = r.size ? formatBytes(r.size) : '?';
+      return '<div class="port-item sdcard-recording">' +
+        '<div class="sdcard-rec-head">' +
+          '<span class="port-name">' + esc(r.path || 'recording') + '</span>' +
+          '<span class="port-desc">' + start + ' &rarr; ' + end + ' &middot; ' + size + '</span>' +
+        '</div>' +
+        '<div class="sdcard-rec-actions">' +
+          '<button class="btn btn-primary btn-sm btn-sdcard-play" data-path="' + esc(r.path) + '" data-cam="' + esc(camId) + '">Play</button>' +
+        '</div>' +
+        '</div>';
+    });
+    list.innerHTML = rows.join('');
+    
+    document.querySelectorAll('.btn-sdcard-play').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const path = e.currentTarget.dataset.path;
+        const cam = e.currentTarget.dataset.cam;
+        const orig = e.currentTarget.textContent;
+        e.currentTarget.textContent = 'Loading...';
+        e.currentTarget.disabled = true;
+        try {
+          const res = await apiRequest('/api/v1/cameras/' + encodeURIComponent(cam) + '/sdcard/playback', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({file_path: path})
+          });
+          if (!res.ok) throw new Error('Failed');
+          const data = await res.json();
+          if (data.playback_url) {
+            window.open(data.playback_url, '_blank');
+          }
+        } catch (err) {
+          alert('Could not get playback URL: ' + err.message);
+        } finally {
+          e.currentTarget.textContent = orig;
+          e.currentTarget.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    console.warn('[sdcard] load error:', err);
+    list.innerHTML = '<div class="text-muted">Could not load SD card recordings.</div>';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes === undefined || bytes === null || bytes < 0) return '-';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (bytes >= 1024 && i < units.length - 1) {
+    bytes /= 1024;
+    i++;
+  }
+  return bytes.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+}
+
 // Ports on this PC (Streams & ports tab).
 function renderPorts(s) {
   const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.textContent = v; };
@@ -3596,6 +3706,7 @@ function setupEventListeners() {
   // NVR Snippets
   document.getElementById('btn-refresh-nvr')?.addEventListener('click', loadNVRSnippets);
   document.getElementById('btn-refresh-recordings')?.addEventListener('click', loadRecordings);
+  document.getElementById('btn-refresh-sdcard')?.addEventListener('click', loadSDCard);
   document.getElementById('btn-copy-frigate')?.addEventListener('click', e => {
     copyToClipboard(document.getElementById('snippet-frigate').textContent, e.currentTarget);
   });
@@ -3671,7 +3782,7 @@ async function afterCameraChange() {
   await refreshAccounts();
   if (state.activeTab === 'tab-cameras') await renderCamerasTab();
   if (state.activeTab === 'tab-logins') renderLoginsTab();
-  if (state.activeTab === 'tab-streams') { loadNVRSnippets(); loadRecordings(); }
+  if (state.activeTab === 'tab-streams') { loadNVRSnippets(); loadRecordings(); loadSDCard(); }
 }
 
 // ---------------------------------------------------------------------------

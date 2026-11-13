@@ -2592,6 +2592,72 @@ body.info-page {
   align-self: start;
 }
 
+/* SD Card (Streams & ports tab) */
+.sdcard-info {
+  margin-bottom: 16px;
+  padding: 16px;
+  background-color: var(--bg-body);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+.sdcard-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.sdcard-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.sdcard-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.sdcard-stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sdcard-progress-bar {
+  height: 8px;
+  background-color: var(--bg-input);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.sdcard-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-success), var(--accent-warning));
+  transition: width 0.3s ease;
+}
+.sdcard-recording {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+.sdcard-recording:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.sdcard-rec-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sdcard-rec-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* Header chip is a button: it opens the tab that explains it */
 button.account-chip {
   font-family: inherit;
