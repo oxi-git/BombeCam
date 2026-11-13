@@ -1,0 +1,38 @@
+# ==============================================================================
+# BombeCam - local recording override.
+#
+# Enables LOCAL RECORDING (Registrazione locale) in the Docker/Linux deploy.
+# It re-mounts MediaMTX with the recording config, shares a /recordings
+# volume with the gateway, and tells the gateway where to read the files so
+# /api/v1/recordings and the Home Assistant latest_recording_urls work.
+#
+# Use together with the base file:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.recording.yml up -d
+# (or the deploy/scripts/up-recording.sh helper, which wraps this command).
+#
+# Keep the base file unchanged so the default (no recording) keeps working and
+# the gateway's config-generation test stays green.
+# ==============================================================================
+name: bombecam
+
+services:
+  mediamtx:
+    volumes:
+      # Replace the default, non-recording config with the recording one.
+      - type: bind
+        source: ./mediamtx.recording.yml
+        target: /mediamtx.yml
+        read_only: true
+      # MediaMTX writes recorded segments here (recordPath: /recordings/...).
+      - recordings:/recordings
+
+  gateway:
+    environment:
+      # The gateway reads this directory to serve /api/v1/recordings and to
+      # fill the per-camera latest_recording_url in the Home Assistant payload.
+      BOMBECAM_RECORDINGS_DIR: /recordings
+    volumes:
+      - recordings:/recordings
+
+volumes:
+  recordings:

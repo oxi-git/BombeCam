@@ -13,7 +13,13 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ./mediamtx.yml:/mediamtx.yml:ro
+      # Long-form on purpose: the "recording" override re-mounts the same
+      # /mediamtx.yml target with deploy/mediamtx.recording.yml, and Compose
+      # replaces the mount on a matched target instead of mounting two files.
+      - type: bind
+        source: ./mediamtx.yml
+        target: /mediamtx.yml
+        read_only: true
 
   gateway:
     # BombeCam's published image: the program from the Linux downloads, with
