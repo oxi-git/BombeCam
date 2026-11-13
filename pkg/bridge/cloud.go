@@ -370,3 +370,119 @@ func (c *Cloud) VideoCall(deviceID string) (*VideoCall, error) {
 	json.Unmarshal(raw, &vc)
 	return &vc, nil
 }
+
+// --- SD Card / Playback API (Osaio/Reolink compatible) ---
+
+// SDCardInfo holds the SD card status from the camera.
+type SDCardInfo struct {
+	TotalSpace  int64  `json:"total_space"`  // bytes
+	FreeSpace   int64  `json:"free_space"`   // bytes
+	UsedSpace   int64  `json:"used_space"`   // bytes
+	Status      int    `json:"status"`       // 0=normal, 1=error, 2=no card, etc.
+	StatusText  string `json:"status_text"`  // human readable
+}
+
+// GetSDCardInfo queries the camera's SD card status.
+func (c *Cloud) GetSDCardInfo(deviceID string) (*SDCardInfo, error) {
+	h, err := c.h2()
+	if err != nil {
+		return nil, err
+	}
+	h["BaseUrlName"] = "web_baseurl"
+	body, _ := json.Marshal(map[string]any{"device_id": deviceID})
+	j, err := c.do("POST", c.Web+"/v2/device/sdcard/info", h, body)
+	if err != nil {
+		return nil, err
+	}
+	if code, _ := j["code"].(float64); code != 1000 {
+		return nil, fmt.Errorf("sdcard/info code=%v msg=%v", j["code"], j["msg"])
+	}
+	data, _ := j["data"].(map[string]any)
+	info := &SDCardInfo{}
+	if v, ok := data["total_space"].(float64); ok {
+		info.TotalSpace = int64(v)
+	}
+	if v, ok := data["free_space"].(float64); ok {
+		info.FreeSpace = int64(v)
+	}
+	if v, ok := data["used_space"].(float64); ok {
+		info.UsedSpace = int64(v)
+	}
+	if v, ok := data["status"].(float64); ok {
+		info.Status = int(v)
+	}
+	if v, ok := data["status_text"].(string); ok {
+		info.StatusText = v
+	}
+	return info, nil
+}
+
+// RecordFile represents a single recording file on the SD card.
+type RecordFile struct {
+	StartTime  int64  `json:"start_time"`   // unix timestamp
+	EndTime    int64  `json:"end_time"`     // unix timestamp
+	Size       int64  `json:"size"`         // bytes
+	Type       int    `json:"type"`         // 1=manual, 2=motion, 3=alarm, etc.
+	Path       string `json:"path"`         // file path on SD
+	URL        string `json:"url"`          // playback/download URL if provided
+	DeviceID   string `json:"device_id"`    // camera UUID
+}
+
+// ListRecordings queries the SD card for recordings in a time range.
+// startTime, endTime are unix timestamps (0 = no limit).
+func (c *Cloud) ListRecordings(deviceID string, startTime, endTime int64) ([]RecordFile, error) {
+	h, err := c.h2()
+	if err != nil {
+		return nil, err
+	}
+	h["BaseUrlName"] = "web_baseurl"
+	body, _ := json.Marshal(map[string]any{
+		"device_id":  deviceID,
+		"start_time": startTime,
+		"end_time":   endTime,
+		"page":       1,
+		"per_page":   100,
+	})
+	j, err := c.do("POST", c.Web+"/v2/device/record/list", h, body)
+	if err != nil {
+		return nil, err
+	}
+	if code, _ := j["code"].(float64); code != 1000 {
+		return nil, fmt.Errorf("record/list code=%v msg=%v", j["code"], j["msg"])
+	}
+	data, _ := j["data"].(map[string]any)
+	listRaw, ok := data["data"].([]any)
+	if !ok {
+		return nil, nil
+	}
+	var files []RecordFile
+	raw, _ := json.Marshal(listRaw)
+	json.Unmarshal(raw, &files)
+	return files, nil
+}
+
+// GetPlaybackURL requests a playback URL for a specific recording file.
+// Returns a signed URL (usually HTTPS) that can be played directly.
+func (c *Cloud) GetPlaybackURL(deviceID, filePath string) (string, error) {
+	h, err := c.h2()
+	if err != nil {
+		return "", err
+	}
+	h["BaseUrlName"] = "web_baseurl"
+	body, _ := json.Marshal(map[string]any{"device_id": deviceID, "file_path": filePath})
+	j, err := c.do("POST", c.Web+"/v2/device/playback", h, body)
+	if err != nil {
+		return "", err
+	}
+	if code, _ := j["code"].(float64); code != 1000 {
+		return "", fmt.Errorf("playback code=%v msg=%v", j["code"], j["msg"])
+	}
+	data, _ := j["data"].(map[string]any)
+	if url, ok := data["url"].(string); ok {
+		return url, nil
+	}
+	if url, ok := data["playback_url"].(string); ok {
+		return url, nil
+	}
+	return "", fmt.Errorf("no playback URL in response")
+}
