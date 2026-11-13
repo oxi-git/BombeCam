@@ -545,11 +545,6 @@ func main() {
 		setMediaRuntime(mtxSupervisor, mtxSupervisor.APIBase())
 	} else {
 		setMediaRuntime(nil, *mediamtxAPIFlag)
-		defer func() {
-			if mtxSupervisor != nil {
-				_ = mtxSupervisor.Stop()
-			}
-		}()
 	}
 
 	setRecordingsRoot(*recordingsDirFlag)
