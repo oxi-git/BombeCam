@@ -463,6 +463,21 @@
         <div class="card">
           <div class="card-header">
             <div>
+              <h2 class="card-title">Recordings</h2>
+              <p class="card-subtitle">Video recorded from your cameras, stored on this PC. Recording must be enabled at start-up (<code>BOMBECAM_RECORDINGS_DIR</code> or <code>-recordings-dir</code>).</p>
+            </div>
+            <button id="btn-refresh-recordings" class="btn btn-secondary btn-sm">🔄 Refresh</button>
+          </div>
+          <div class="card-body">
+            <div id="recordings-list" class="stream-list">
+              <div class="text-muted">Loading...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
               <h2 class="card-title">Ports on this PC</h2>
               <p class="card-subtitle">What other devices connect to. Ports can be changed on the <a href="/integrations.html">Frigate / Home Assistant page</a>.</p>
             </div>

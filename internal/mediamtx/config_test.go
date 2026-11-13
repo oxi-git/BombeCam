@@ -288,6 +288,28 @@ func TestDeployConfigMatchesGenerated(t *testing.T) {
 // The stream password switch: other addresses need the user and password,
 // this machine does not (the gateway's own reads), and the origins stay
 // locked to the gateway.
+// With a recording directory chosen, the generated configuration records every
+// stream into that directory (one subdirectory per stream path) in fragmented
+// MP4, one-second segments.
+func TestGenerateConfig_Recording(t *testing.T) {
+	cfg := DefaultConfig()
+	dir := filepath.Join(t.TempDir(), "recordings")
+	cfg.RecordDir = dir
+	out := GenerateConfig(cfg)
+	want := yamlSingleQuoted(filepath.Join(dir, "%path", "%Y-%m-%d_%H-%M-%S"))
+	for _, sub := range []string{"  record: yes", "  recordPath: " + want, "  recordFormat: fmp4", "  recordSegmentDuration: 1s"} {
+		if !strings.Contains(out, sub) {
+			t.Errorf("recording config missing %q in:\n%s", sub, out)
+		}
+	}
+	// The default (no directory) keeps the config free of any record keys, so
+	// MediaMTX does not create recordings the user never asked for.
+	plain := GenerateConfig(DefaultConfig())
+	if strings.Contains(plain, "recordPath") || strings.Contains(plain, "recordFormat") {
+		t.Errorf("default config must not record:\n%s", plain)
+	}
+}
+
 func TestGenerateConfig_StreamPasswordAndOrigins(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ReadUser, cfg.ReadPass = "bombecam", "it's-secret"

@@ -458,6 +458,7 @@ func main() {
 	hlsPortFlag := flag.Int("hls-port", envInt("BOMBECAM_HLS_PORT", 0), "HLS port for the built-in MediaMTX (default 8888)")
 	webrtcPortFlag := flag.Int("webrtc-port", envInt("BOMBECAM_WEBRTC_PORT", 0), "WebRTC port for the built-in MediaMTX (default 8889)")
 	webrtcUDPPortFlag := flag.Int("webrtc-udp-port", envInt("BOMBECAM_WEBRTC_UDP_PORT", 0), "WebRTC media UDP port for the built-in MediaMTX (default 8189)")
+	recordingsDirFlag := flag.String("recordings-dir", getEnvOrDefault("BOMBECAM_RECORDINGS_DIR", ""), "directory to record published streams to (one subfolder per stream); empty disables recording")
 	retryMaxWaitFlag := flag.Duration("retry-max-wait", envDuration("BOMBECAM_RETRY_MAX_WAIT", DefaultRetryMaxWait), "longest wait between automatic stream retries after 3 failed starts (30s, 1m, then this)")
 	strictManualFlag := flag.Bool("strict-manual", getEnvOrDefault("STRICT_MANUAL", "false") == "true", "after 3 failed stream attempts, wait for a manual retry instead of backing off and retrying")
 	headlessEnv := getEnvOrDefault("BOMBECAM_HEADLESS", "false")
@@ -533,6 +534,9 @@ func main() {
 		}
 		mtxCfg.GatewayOrigin = strings.TrimRight(browserURL(*httpAddr), "/")
 		applyMediaSettings(&mtxCfg, integ)
+		if *recordingsDirFlag != "" {
+			mtxCfg.RecordDir = *recordingsDirFlag
+		}
 		mtxSupervisor = mediamtx.NewSupervisor(mtxCfg)
 		if err := mtxSupervisor.Start(context.Background()); err != nil {
 			fmt.Printf("[mediamtx] ERROR: the video server could not start: %v\n", err)
@@ -547,6 +551,8 @@ func main() {
 			}
 		}()
 	}
+
+	setRecordingsRoot(*recordingsDirFlag)
 
 	// The data folder holds the profile, operator tokens and the saved server key and app ID.
 	var profDir string

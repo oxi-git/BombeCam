@@ -393,6 +393,18 @@ func SetupAPIMux(sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...
 	})
 
 	// -------------------------------------------------------------
+	// Recordings
+	// -------------------------------------------------------------
+	// GET /api/v1/recordings          list recorded segments
+	// GET /api/v1/recordings/download?path=...  download one segment
+	mux.HandleFunc("/api/v1/recordings", func(w http.ResponseWriter, r *http.Request) {
+		handleRecordings(w, r)
+	})
+	mux.HandleFunc("/api/v1/recordings/download", func(w http.ResponseWriter, r *http.Request) {
+		handleRecordingDownload(w, r)
+	})
+
+	// -------------------------------------------------------------
 	// 7. RESTful Camera Routes (/api/v1/cameras/{id}/...)
 	// -------------------------------------------------------------
 	mux.HandleFunc("/api/v1/cameras/", func(w http.ResponseWriter, r *http.Request) {

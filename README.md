@@ -275,6 +275,7 @@ Every option can also be set with the environment variable shown.
                           BOMBECAM_RTSP_PORT etc.). When set, they replace the Ports option on the page.
 -consumer-rtsp-base string  RTSP base address advertised to other devices (default: detected; BOMBECAM_RTSP_CONSUMER_BASE)
 -publisher string         native (built-in, default) or ffmpeg (BOMBECAM_PUBLISHER)
+-recordings-dir string    directory to record published streams to (one subfolder per stream); empty disables recording (BOMBECAM_RECORDINGS_DIR)
 -retry-max-wait duration  longest wait between automatic retries after 3 failed starts (default 2m; BOMBECAM_RETRY_MAX_WAIT)
 -strict-manual            after 3 failed starts, wait for Retry now instead of retrying (STRICT_MANUAL)
 -server-key-file string   file holding an Osaio server key to use instead of the built-in or saved one

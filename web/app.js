@@ -339,6 +339,7 @@ function switchTab(tabId) {
 
   if (tabId === 'tab-streams') {
     loadNVRSnippets();
+    loadRecordings();
   } else if (tabId === 'tab-cameras') {
     renderCamerasTab();
   } else if (tabId === 'tab-logins') {
@@ -2975,9 +2976,47 @@ async function loadNVRSnippets() {
   }
 }
 
+// Recordings (Streams & ports tab). Lists and downloads recorded segments.
+async function loadRecordings() {
+  const btn = document.getElementById('btn-refresh-recordings');
+  const list = document.getElementById('recordings-list');
+  if (!list) return;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await apiRequest('/api/v1/recordings');
+    if (!res.ok) {
+      list.innerHTML = '<div class="text-muted">Could not load recordings.</div>';
+      return;
+    }
+    const data = await res.json();
+    if (!data.enabled) {
+      list.innerHTML = '<div class="text-muted">' + (data.instruction || 'Recording is off.') + '</div>';
+      return;
+    }
+    const recs = data.recordings || [];
+    if (recs.length === 0) {
+      list.innerHTML = '<div class="text-muted">No recordings yet. They appear here while a camera streams.</div>';
+      return;
+    }
+    const rows = recs.map(r => {
+      const esc = v => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      return '<div class="port-item">' +
+        '<span class="port-name">' + esc(r.stream) + '</span>' +
+        '<span class="port-desc">' + esc(r.name) + ' &middot; ' + (r.size || 0) + ' bytes</span>' +
+        '<a class="btn btn-secondary btn-sm" href="/api/v1/recordings/download?path=' + encodeURIComponent(r.path) + '">Download</a>' +
+        '</div>';
+    });
+    list.innerHTML = rows.join('');
+  } catch (err) {
+    console.warn('[recordings] load error:', err);
+    list.innerHTML = '<div class="text-muted">Could not load recordings.</div>';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // Ports on this PC (Streams & ports tab).
 function renderPorts(s) {
-  const p = s.ports || {};
   const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.textContent = v; };
   set('port-tag-rtsp', p.rtsp);
   set('port-tag-hls', p.hls);
@@ -3342,6 +3381,7 @@ function setupEventListeners() {
 
   // NVR Snippets
   document.getElementById('btn-refresh-nvr')?.addEventListener('click', loadNVRSnippets);
+  document.getElementById('btn-refresh-recordings')?.addEventListener('click', loadRecordings);
   document.getElementById('btn-copy-frigate')?.addEventListener('click', e => {
     copyToClipboard(document.getElementById('snippet-frigate').textContent, e.currentTarget);
   });
@@ -3417,7 +3457,7 @@ async function afterCameraChange() {
   await refreshAccounts();
   if (state.activeTab === 'tab-cameras') await renderCamerasTab();
   if (state.activeTab === 'tab-logins') renderLoginsTab();
-  if (state.activeTab === 'tab-streams') loadNVRSnippets();
+  if (state.activeTab === 'tab-streams') { loadNVRSnippets(); loadRecordings(); }
 }
 
 // ---------------------------------------------------------------------------
@@ -3520,7 +3560,7 @@ async function renameStream(id, name, oldName) {
     if (!res.ok) { setListStatus('cameras-status', (data && (data.message || data.error)) || 'Could not rename.', 'error'); return; }
     setListStatus('cameras-status', `Stream name saved: ${data.rtsp_url || name}`, 'ok');
     await renderCamerasTab();
-    try { await loadNVRSnippets(); } catch (_) {}
+    try { await loadNVRSnippets(); await loadRecordings(); } catch (_) {}
   } catch (err) {
     setListStatus('cameras-status', 'Could not rename (BombeCam unreachable).', 'error');
   }
