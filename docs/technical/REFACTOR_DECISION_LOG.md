@@ -101,3 +101,19 @@ without hardware.
 ## Feature requirements captured for follow-up
 - Continuous all-day recording requires keeping every camera stream published; today streams are
   on-demand. Decide whether to add an "always record" mode that keeps publishers up.
+## Home Assistant alignment — done
+- Verified (earlier) that all four HA endpoints and every parsed field matched the
+  `ha-bombecam` integration; its 19 pytest tests passed in Docker.
+- Added automated contract tests on BOTH sides so a rename can't silently break the pairing:
+  - BombeCam (Go): TestHomeAssistantContractPinsAPI (payload fields HA reads),
+    TestShadowContractPinsAPI (state.reported attributes), TestHomeAssistantContractRecording
+    (recording_available / latest_recording_url present and the download URL is exact).
+  - ha-bombecam (Python): tests/test_contract.py exercises the real BombeCamClient against the
+    exact payloads BombeCam produces (no client mock). Full HA suite now 22 tests.
+- Per-camera recordings surfaced in HA (design B): the gateway's
+  /api/v1/integrations/homeassistant now reports recording_available + latest_recording_url per
+  camera, and ha-bombecam added a per-camera `binary_sensor.xxx_recording` exposing
+  latest_recording_url. All green.
+- Deploy from the fork: docs/technical/HA_DEPLOY_FORK_IMAGE.md has build + compose steps
+  (including enabling MediaMTX recording in the Docker deploy, which does NOT use the gateway's
+  generated config because BOMBECAM_NO_MEDIAMTX_SUPERVISOR=true).
