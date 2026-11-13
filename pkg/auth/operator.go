@@ -240,14 +240,16 @@ func (om *OperatorManager) createSessionInternal(isOperator bool) (*Session, err
 	return sess, nil
 }
 
-// IssueSessionCookie sets an HttpOnly; SameSite=Strict session cookie on ResponseWriter.
+// IssueSessionCookie sets an HttpOnly; SameSite=Lax session cookie on ResponseWriter.
+// Lax allows the cookie on top-level navigations (e.g., login POST redirect) which is
+// required for LAN access where the cookie origin (IP) differs from the referrer.
 func (om *OperatorManager) IssueSessionCookie(w http.ResponseWriter, sess *Session) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    sess.Token,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Expires:  sess.ExpiresAt,
 	})
 }
@@ -259,7 +261,7 @@ func (om *OperatorManager) ClearSessionCookie(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 		Expires:  time.Unix(0, 0),
 	})

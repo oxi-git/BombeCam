@@ -105,7 +105,7 @@ func TestOperatorManager_SessionLifecycle(t *testing.T) {
 		t.Fatal("expected session cookie to be set")
 	}
 	sc := cookies[0]
-	if sc.Name != SessionCookieName || sc.Value != sess.Token || !sc.HttpOnly || sc.SameSite != http.SameSiteStrictMode {
+	if sc.Name != SessionCookieName || sc.Value != sess.Token || !sc.HttpOnly || sc.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("unexpected cookie attributes: %+v", sc)
 	}
 
