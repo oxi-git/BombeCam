@@ -26,6 +26,9 @@ type RulesetConfig struct {
 	// MAC; there is deliberately no default.
 	Cameras          []string
 	BlockStreamSetup bool
+	// Region selects the Osaio endpoints the allowlist trusts ("us" or
+	// "eu"). Empty means the default (US).
+	Region policy.Region
 	// Optional return-path NAT when this box routes the camera subnet itself.
 	EnableMasq   bool
 	WANInterface string
@@ -86,7 +89,7 @@ func NewRulesetManager(cfg RulesetConfig) (*RulesetManager, error) {
 		return nil, err
 	}
 	// Validate subjects now so a bad MAC fails at startup, not at apply time.
-	if _, err := policy.Compile(subs, policy.Setting{BlockCloudVideo: true}, policy.Options{}); err != nil {
+	if _, err := policy.Compile(subs, policy.Setting{BlockCloudVideo: true, Region: cfg.Region}, policy.Options{}); err != nil {
 		return nil, err
 	}
 	rcfg := nftables.DefaultConfig()
@@ -103,10 +106,76 @@ func NewRulesetManager(cfg RulesetConfig) (*RulesetManager, error) {
 	return &RulesetManager{cfg: cfg, subjects: subs, renderer: r, addrs: map[string]map[string]resolvedAddr{}}, nil
 }
 
+// snapshot copies the fields Document needs, so a concurrent Reconfigure
+// cannot change them mid-compile.
+func (m *RulesetManager) snapshot() ([]policy.Subject, policy.Region, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	subs := make([]policy.Subject, len(m.subjects))
+	copy(subs, m.subjects)
+	return subs, m.cfg.Region, m.cfg.BlockStreamSetup
+}
+
 // Document compiles the policy for the given setting.
 func (m *RulesetManager) Document(block bool) (*policy.Document, error) {
-	return policy.Compile(m.subjects, policy.Setting{BlockCloudVideo: block},
-		policy.Options{BlockStreamSetup: m.cfg.BlockStreamSetup})
+	subs, region, blockSetup := m.snapshot()
+	return policy.Compile(subs, policy.Setting{BlockCloudVideo: block, Region: region},
+		policy.Options{BlockStreamSetup: blockSetup})
+}
+
+// Region returns the Osaio region the allowlist is built for.
+func (m *RulesetManager) Region() policy.Region {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cfg.Region.OrDefault()
+}
+
+// CameraMACs returns the configured cameras' canonical MACs, sorted and
+// de-duplicated.
+func (m *RulesetManager) CameraMACs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	seen := map[string]bool{}
+	out := make([]string, 0, len(m.subjects))
+	for _, sub := range m.subjects {
+		mac := policy.CanonicalMAC(sub.MAC)
+		if mac == "" || seen[mac] {
+			continue
+		}
+		seen[mac] = true
+		out = append(out, mac)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// BlockStreamSetupEnabled reports whether Osaio's stream-setup server is
+// blocked along with cloud video.
+func (m *RulesetManager) BlockStreamSetupEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cfg.BlockStreamSetup
+}
+
+// Reconfigure replaces the cameras, region and stream-setup setting after
+// validating them exactly as NewRulesetManager does. The renderer is kept;
+// on error nothing changes.
+func (m *RulesetManager) Reconfigure(cameras []string, region policy.Region, blockStreamSetup bool) error {
+	subs, err := ParseCameras(cameras)
+	if err != nil {
+		return err
+	}
+	if _, err := policy.Compile(subs, policy.Setting{BlockCloudVideo: true, Region: region},
+		policy.Options{BlockStreamSetup: blockStreamSetup}); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cfg.Cameras = append([]string(nil), cameras...)
+	m.cfg.Region = region
+	m.cfg.BlockStreamSetup = blockStreamSetup
+	m.subjects = subs
+	return nil
 }
 
 // Resolved returns the currently allowed addresses per host.
@@ -137,9 +206,12 @@ func (m *RulesetManager) Resolve(ctx context.Context) (bool, error) {
 	}
 	now := time.Now()
 	fresh := map[string][]net.IP{}
+	m.mu.RLock()
+	resolver := m.cfg.Resolver
+	m.mu.RUnlock()
 	var errs []string
 	for _, h := range doc.Hosts() {
-		ips, err := m.cfg.Resolver(ctx, h)
+		ips, err := resolver(ctx, h)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", h, err))
 		}

@@ -78,7 +78,7 @@ func TestDropbearGate(t *testing.T) {
 	keyTarget := routerpush.Target{Address: e.addr, User: e.user, Signers: ks.Signers(), PinnedHostKey: hostKey, PinnedHostKeyType: hostKeyType}
 
 	// 2. Apply over the key (no password).
-	spec, _ := openwrt.ApplySpec([]openwrt.Camera{{Name: "Test Camera", MAC: "AA:BB:CC:DD:EE:01"}}, policy.Options{})
+	spec, _ := openwrt.ApplySpec([]openwrt.Camera{{Name: "Test Camera", MAC: "AA:BB:CC:DD:EE:01"}}, policy.Options{}, policy.RegionUS)
 	res, err = routerpush.Run(ctx, keyTarget, openwrt.GateApply, spec)
 	if err != nil {
 		t.Fatalf("apply over key: %v", err)

@@ -561,9 +561,26 @@
         </div>
         <div class="card-body">
           <p class="privacy-hardware">
-            <strong>Needs:</strong> a GL.iNet or OpenWrt router that your cameras connect to, set to Router mode. Most internet-provider routers can't do this.
+            <strong>Needs:</strong> <span id="privacy-hardware-text">a GL.iNet or OpenWrt router that your cameras connect to, set to Router mode. Most internet-provider routers can't do this.</span>
             <a href="/blocking-options.html" target="_blank" rel="noopener" id="link-blocking-options">Other ways to block camera traffic</a>
           </p>
+
+          <div class="privacy-backend-row" style="margin-bottom: 14px;">
+            <div class="privacy-backend-info">
+              <div class="option-section-title">Where the firewall runs</div>
+              <select id="privacy-backend" class="form-control" aria-label="Where the firewall runs">
+                <option value="router">Router (OpenWrt / GL.iNet)</option>
+                <option value="local">This computer (bombecam-net)</option>
+              </select>
+              <div id="privacy-backend-detail" class="control-hint"></div>
+              <div class="option-section-title" style="margin-top: 12px;">Osaio region</div>
+              <select id="privacy-region" class="form-control" aria-label="Osaio region">
+                <option value="us">US (mqtts02-us.osaio.net)</option>
+                <option value="eu">EU (mqtts-eu.osaio.net)</option>
+              </select>
+              <div class="control-hint">The region your Osaio account belongs to. The firewall allowlist trusts only that region's servers, so the camera keeps its control channel and BombeCam can still start local streams.</div>
+            </div>
+          </div>
 
           <div class="privacy-router-row">
             <div class="privacy-router-info">
@@ -611,8 +628,8 @@
                 <li>The rules live on the router your cameras connect to (not on this PC) and recognise each camera by its network (MAC) address. Each camera has its own switch.</li>
                 <li>A blocked camera can still reach only:
                   <ul>
-                    <li>Osaio's control server (<code>mqtts02-us.osaio.net</code>, port 8883, encrypted), so the Osaio app can still switch the light, pan/tilt and change night vision;</li>
-                    <li id="how-stream-setup">Osaio's stream-setup server (<code>wss-us.osaio.net</code>) for the few kilobytes of connection details BombeCam needs to start a local stream;</li>
+                    <li>Osaio's control server for your region (US: <code>mqtts02-us.osaio.net</code>, EU: <code>mqtts-eu.osaio.net</code>, port 8883, encrypted), so the Osaio app can still switch the light, pan/tilt and change night vision;</li>
+                    <li id="how-stream-setup">Osaio's stream-setup server for your region (US: <code>wss-us.osaio.net</code>, EU: <code>wss-eu.osaio.net</code>) for the few kilobytes of connection details BombeCam needs to start a local stream;</li>
                     <li>DNS and time sync.</li>
                   </ul>
                 </li>
@@ -645,6 +662,32 @@
               <p class="how-note"><strong>Disconnect</strong> removes everything BombeCam added to the router, including its key. Removing a camera from BombeCam also removes it from the router, and so does deleting all stored information.</p>
               <p class="how-note">Prefer to do it by hand? <a href="/api/v1/privacy/router-script" download>Download the router script</a>, copy it to the router's <code>/tmp</code> folder, and run it over SSH:</p>
               <pre class="code-block"><code id="privacy-manual-command">sh /tmp/bombecam-router.sh apply yes --camera "Name=AA:BB:CC:DD:EE:FF"</code></pre>
+            </div>
+          </details>
+          <details id="privacy-how-local" class="how-it-works" style="display: none;">
+            <summary>How it works</summary>
+            <div class="how-body">
+              <h3>How the blocking works</h3>
+              <ul>
+                <li>The rules live on the Linux machine your cameras route through (for example Home Assistant OS), in an nftables table, and recognise each camera by its network (MAC) address. The <code>bombecam-net</code> daemon applies them in one transaction and reads them back from the kernel.</li>
+                <li>A blocked camera can still reach only Osaio's control server and stream-setup server for your region, DNS and time sync, all under a shared <strong>4&nbsp;KB/s per camera</strong> cap. Everything else, including IPv6, is dropped. Allowed traffic is not inspected, so images in it cannot be ruled out.</li>
+                <li>Traffic to devices on your own network is left alone, so the camera keeps streaming to BombeCam and Home Assistant. <strong>What Osaio can still see</strong> and what the encrypted control channel carries are unchanged.</li>
+                <li>The camera choices and the region are sent to <code>bombecam-net</code> over its local API on <code>127.0.0.1:8653</code>. If the service is down, the choices stay saved and are applied when it comes back.</li>
+              </ul>
+              <h3>What it requires</h3>
+              <ul>
+                <li>A Linux machine on the path the cameras use to reach the internet, running the <code>bombecam-net</code> daemon with nftables (on Home Assistant OS, the <code>firewall</code> service of the BombeCam compose file).</li>
+                <li>The cameras routed through it, and each camera streamed to BombeCam at least once, so BombeCam knows its MAC address.</li>
+                <li>The gateway and the daemon on the same loopback address (the default), or <code>BOMBECAM_LOCAL_FIREWALL_URL</code> pointing at it.</li>
+              </ul>
+              <h3>Setup</h3>
+              <ol>
+                <li>Start the <code>firewall</code> service (<code>bombecam-net</code>) on the machine with nftables.</li>
+                <li>Choose <strong>This computer</strong> under <strong>Where the firewall runs</strong>.</li>
+                <li>Set <strong>Osaio region</strong> to the region of your account.</li>
+                <li>Turn on <strong>Block all cameras</strong>, or the switch for each camera you want blocked, then press <strong>Check firewall</strong>.</li>
+              </ol>
+              <p class="how-note">The daemon keeps its rules and configuration in its state volume. Stopping the service removes nothing from the cameras; the rules stop with it.</p>
             </div>
           </details>
         </div>

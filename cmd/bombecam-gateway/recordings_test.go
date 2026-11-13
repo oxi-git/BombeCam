@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // The recordings handlers guard with validateOperatorRequest, which lets a
@@ -87,5 +88,52 @@ func TestRecordingsDisabled(t *testing.T) {
 	_ = json.Unmarshal(rr.Body.Bytes(), &out)
 	if out.Enabled {
 		t.Fatal("recording must be off by default")
+	}
+}
+
+// Retention: segments older than the window are deleted (and their empty
+// stream directory is removed), younger ones survive, and retention 0 changes
+// nothing.
+func TestRecordingsRetentionCleanup(t *testing.T) {
+	root := t.TempDir()
+	old := filepath.Join(root, "old_cam", "2026-01-01_00-00-00.mp4")
+	newer := filepath.Join(root, "new_cam", "2026-11-13_10-00-00.mp4")
+	for _, p := range []string{old, newer} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Make the first segment look old.
+	oldTime := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(old, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	// Guard: without retention, nothing is deleted.
+	setRecordingsRoot(root)
+	setRecordingsRetention(0)
+	defer func() {
+		setRecordingsRoot("")
+		setRecordingsRetention(0)
+	}()
+	cleanRecordings()
+	if _, err := os.Stat(old); err != nil {
+		t.Fatalf("retention 0 must keep everything: %v", err)
+	}
+
+	// With retention 1 day, the old segment goes away and its empty directory
+	// is removed too; the fresh one stays.
+	setRecordingsRetention(1)
+	cleanRecordings()
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Errorf("old segment must be deleted, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(old)); !os.IsNotExist(err) {
+		t.Errorf("empty stream directory must be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(newer); err != nil {
+		t.Errorf("recent segment must be kept: %v", err)
 	}
 }

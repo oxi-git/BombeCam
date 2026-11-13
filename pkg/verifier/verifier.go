@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/Fever-r/BombeCam/pkg/policy"
 )
 
 // NetworkProbe defines a target endpoint and port tested during verification.
@@ -19,15 +21,29 @@ type NetworkProbe struct {
 	ExpectedWhenBlocking bool   `json:"expected_when_blocking"`
 }
 
-// DefaultProbeMatrix is used only when no matrix was generated from the policy.
-var DefaultProbeMatrix = []NetworkProbe{
-	{Name: "control-mqtts-8883", TargetHost: "mqtts02-us.osaio.net", Port: 8883, Protocol: "tcp", ExpectedWhenBlocking: true},
-	{Name: "stream-setup-443", TargetHost: "wss-us.osaio.net", Port: 443, Protocol: "tcp", ExpectedWhenBlocking: true},
-	{Name: "public-dns-53", TargetHost: "8.8.8.8", Port: 53, Protocol: "udp", ExpectedWhenBlocking: true},
-	{Name: "other-https-443", TargetHost: "1.1.1.1", Port: 443, Protocol: "tcp", ExpectedWhenBlocking: false},
-	{Name: "relay-stun-3478", TargetHost: "142.250.180.127", Port: 3478, Protocol: "udp", ExpectedWhenBlocking: false},
-	{Name: "arbitrary-port-9999", TargetHost: "1.1.1.1", Port: 9999, Protocol: "tcp", ExpectedWhenBlocking: false},
+// ProbeMatrixForRegion is the fallback matrix for a region, used only when no
+// matrix was generated from the policy.
+func ProbeMatrixForRegion(region policy.Region) []NetworkProbe {
+	eps, err := region.Endpoints()
+	if err != nil {
+		eps, _ = policy.DefaultRegion.Endpoints()
+	}
+	control := policy.ControlHost
+	if len(eps.ControlHosts) > 0 {
+		control = eps.ControlHosts[0]
+	}
+	return []NetworkProbe{
+		{Name: "control-mqtts-8883", TargetHost: control, Port: eps.ControlPort, Protocol: "tcp", ExpectedWhenBlocking: true},
+		{Name: "stream-setup-443", TargetHost: eps.StreamSetupHost, Port: eps.StreamSetupPort, Protocol: "tcp", ExpectedWhenBlocking: true},
+		{Name: "public-dns-53", TargetHost: "8.8.8.8", Port: 53, Protocol: "udp", ExpectedWhenBlocking: true},
+		{Name: "other-https-443", TargetHost: "1.1.1.1", Port: 443, Protocol: "tcp", ExpectedWhenBlocking: false},
+		{Name: "relay-stun-3478", TargetHost: "142.250.180.127", Port: 3478, Protocol: "udp", ExpectedWhenBlocking: false},
+		{Name: "arbitrary-port-9999", TargetHost: "1.1.1.1", Port: 9999, Protocol: "tcp", ExpectedWhenBlocking: false},
+	}
 }
+
+// DefaultProbeMatrix is the fallback matrix for the default region.
+var DefaultProbeMatrix = ProbeMatrixForRegion(policy.DefaultRegion)
 
 // Config configures the runtime verification subsystem
 type Config struct {
@@ -35,7 +51,8 @@ type Config struct {
 	CameraMAC        string
 	CameraIP         string
 	GatewayIP        string
-	EnforcementPoint string // "nftables", "openwrt", "consumer_router"
+	EnforcementPoint string        // "nftables", "openwrt", "consumer_router"
+	Region           policy.Region // Osaio region for the fallback probe matrix
 	ControlPath      ControlPathType
 	VerdictTTL       time.Duration // Default: 5 minutes
 	LearnedTTL       int           // Learned camera IP initial TTL (default 64)
@@ -108,7 +125,7 @@ func (v *Verifier) SetProbeMatrix(m []NetworkProbe) error {
 // not reentrant, so re-locking here deadlocks the verifier.
 func (v *Verifier) probeMatrixLocked() []NetworkProbe {
 	if len(v.matrix) == 0 {
-		return DefaultProbeMatrix
+		return ProbeMatrixForRegion(v.cfg.Region)
 	}
 	return v.matrix
 }
@@ -160,7 +177,7 @@ func NewVerifier(cfg Config, prober ProbeExecutor, m *Metrics) *Verifier {
 		controlPath: cp,
 		prober:      prober,
 		metrics:     m,
-		matrix:      DefaultProbeMatrix,
+		matrix:      ProbeMatrixForRegion(cfg.Region),
 	}
 }
 

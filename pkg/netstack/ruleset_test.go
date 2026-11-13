@@ -6,8 +6,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Fever-r/BombeCam/pkg/policy"
 )
 
 func fakeResolver(answers map[string][]string) func(context.Context, string) ([]net.IP, error) {
@@ -93,13 +96,13 @@ func TestStateFailClosed(t *testing.T) {
 	if err != nil || !block || st.Status != StatusDegradedFailClosed {
 		t.Fatalf("missing state: block=%v status=%s err=%v", block, st.Status, err)
 	}
-	if err := sm.Persist(false, "", StatusRemoved); err != nil {
+	if err := sm.Persist(StateOptions{Block: false}, "", StatusRemoved); err != nil {
 		t.Fatal(err)
 	}
 	if block, st, _ = sm.RestoreOnBoot(); block || st.Status != StatusRemoved {
 		t.Fatalf("persisted No restored as block=%v status=%s", block, st.Status)
 	}
-	if err := sm.Persist(true, "table inet bombecam {}", ""); err != nil {
+	if err := sm.Persist(StateOptions{Block: true}, "table inet bombecam {}", ""); err != nil {
 		t.Fatal(err)
 	}
 	if block, st, _ = sm.RestoreOnBoot(); !block || st.RulesetHash == "" {
@@ -113,6 +116,70 @@ func TestStateFailClosed(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte("{truncated"), 0o600))
 	if block, _, err = sm.RestoreOnBoot(); !block || err == nil {
 		t.Fatal("unparseable state.json must fail closed with an error")
+	}
+}
+
+func TestStatePersistsConfig(t *testing.T) {
+	dir := t.TempDir()
+	sm := NewStateManager(dir)
+	want := StateOptions{
+		Block:            true,
+		Region:           policy.RegionEU,
+		Cameras:          []string{"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"},
+		BlockStreamSetup: true,
+	}
+	if err := sm.Persist(want, "table inet bombecam {}", StatusRulesLoaded); err != nil {
+		t.Fatal(err)
+	}
+	st, err := sm.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Region != "eu" || !st.BlockStreamSetup || !slices.Equal(st.Cameras, want.Cameras) {
+		t.Fatalf("GetState lost config: %+v", st)
+	}
+	block, restored, err := sm.RestoreOnBoot()
+	if err != nil || !block {
+		t.Fatalf("restore: block=%v err=%v", block, err)
+	}
+	if restored.Region != "eu" || !restored.BlockStreamSetup || !slices.Equal(restored.Cameras, want.Cameras) {
+		t.Fatalf("RestoreOnBoot lost config: %+v", restored)
+	}
+}
+
+func TestReconfigure(t *testing.T) {
+	m, err := NewRulesetManager(RulesetConfig{Cameras: []string{"Front=aa:bb:cc:dd:ee:01"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.CameraMACs(); len(got) != 1 || got[0] != "aa:bb:cc:dd:ee:01" {
+		t.Fatalf("initial cameras: %v", got)
+	}
+	if err := m.Reconfigure(nil, policy.RegionEU, true); err == nil {
+		t.Fatal("empty camera list accepted")
+	}
+	if err := m.Reconfigure([]string{"Front=not-a-mac"}, policy.RegionEU, true); err == nil {
+		t.Fatal("malformed MAC accepted")
+	}
+	// A failed Reconfigure changes nothing.
+	if got := m.CameraMACs(); len(got) != 1 || got[0] != "aa:bb:cc:dd:ee:01" {
+		t.Fatalf("failed Reconfigure changed cameras: %v", got)
+	}
+	if m.Region() != policy.RegionUS || m.BlockStreamSetupEnabled() {
+		t.Fatal("failed Reconfigure changed region or stream setup")
+	}
+	if err := m.Reconfigure([]string{"Front=AA:BB:CC:DD:EE:02", "Back=aa:bb:cc:dd:ee:01"}, policy.RegionEU, true); err != nil {
+		t.Fatal(err)
+	}
+	got := m.CameraMACs()
+	if !slices.Equal(got, []string{"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"}) {
+		t.Fatalf("cameras after reconfigure: %v", got)
+	}
+	if m.Region() != policy.RegionEU || !m.BlockStreamSetupEnabled() {
+		t.Fatalf("region=%s streamSetup=%v after reconfigure", m.Region(), m.BlockStreamSetupEnabled())
+	}
+	if _, err := m.Document(true); err != nil {
+		t.Fatalf("document after reconfigure: %v", err)
 	}
 }
 

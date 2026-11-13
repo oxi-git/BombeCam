@@ -24,14 +24,31 @@ Flags:
 ```
 --camera              "Name=MAC" (repeatable), or CAMERA_MAC="Name=MAC,Name=MAC"
 --block-stream-setup  also block Osaio's stream-setup server (BombeCam may then be unable to start local streams)
+--region              Osaio region for the allowlist: "us" (default) or "eu" (also BOMBECAM_REGION)
 --state-dir           persistent state (default /var/lib/bombecam)
 --masquerade          add return-path NAT, only for a machine that routes the camera subnet without NAT of its own
 --api-host/--api-port local REST API (default 127.0.0.1:8653)
 ```
 
+The region selects the Osaio endpoints the allowlist trusts: US (`mqtts02-us.osaio.net`, `wss-us.osaio.net`) or EU (`mqtts-eu.osaio.net`, `mqtts01-eu.osaio.net`, `wss-eu.osaio.net`). Use the region the cameras' Osaio account belongs to; the wrong one blocks their control channel.
+
 The rules are those described in [block-cloud-video.md](block-cloud-video.md#what-the-router-does): traffic to private networks untouched; Osaio control, stream setup, DNS and time sync allowed under a shared 4 KB/s cap per camera; everything else, including IPv6, dropped. They are loaded in one nftables transaction and read back from the kernel.
 
-The daemon's local API (`/api/v1/net/status`, `/api/v1/net/block-cloud-video`, `/api/v1/net/verdict`) listens on `127.0.0.1:8653`. Set `BOMBECAM_NET_API_KEY` to require a bearer token for changes.
+The daemon's local API listens on `127.0.0.1:8653`: `GET /api/v1/net/status`, `POST /api/v1/net/config`, `POST /api/v1/net/block-cloud-video` and `/api/v1/net/verdict`. Set `BOMBECAM_NET_API_KEY` to require a bearer token for changes; GET status stays open.
+
+`GET /api/v1/net/status` reports `block_cloud_video`, `applied`, `ruleset_hash`, `allowed_addresses`, `headline`, `os`, plus the managed configuration as `region`, `cameras` (canonical MACs) and `block_stream_setup`.
+
+`POST /api/v1/net/config` changes the configuration at runtime:
+
+```
+curl -s -X POST http://127.0.0.1:8653/api/v1/net/config \
+  -H 'Content-Type: application/json' \
+  -d '{"block_cloud_video":true,"cameras":["AA:BB:CC:DD:EE:FF"],"region":"eu","block_stream_setup":false}'
+```
+
+Omitted fields keep their current value; `cameras` replaces the whole list (an empty array keeps the current cameras when blocking is off, and is rejected while blocking is on). An unknown region or an invalid MAC returns `400` with `{"error":"invalid_request","message":"..."}`; a failure while applying the rules returns `500` with `{"error":"apply_failed","message":"..."}`. On success the reply is the same payload as GET status.
+
+Cameras, region and `block_stream_setup` are saved in the state directory and win over `--camera`/`CAMERA_MAC`, `--region`/`BOMBECAM_REGION` and `--block-stream-setup` after a restart (the block setting is saved as before). Use the flags to seed a first start; manage them through the API afterwards.
 
 ## Docker
 
@@ -39,7 +56,7 @@ The daemon's local API (`/api/v1/net/status`, `/api/v1/net/block-cloud-video`, `
 
 ```
 cd deploy
-cp .env.example .env      # set CAMERA_MAC="Front Door=aa:bb:cc:dd:ee:ff,...", and the interface settings if needed
+cp .env.example .env      # set CAMERA_MAC="Front Door=aa:bb:cc:dd:ee:ff,...", BOMBECAM_REGION=us|eu, and the interface settings if needed
 docker compose --profile isolation up -d
 ```
 

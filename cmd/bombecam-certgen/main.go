@@ -27,6 +27,11 @@ var (
 		"iot.us-east-1.amazonaws.com",
 		"localhost",
 		"wss-us.osaio.net",
+		// EU region: the same certificate covers both, so a local TLS
+		// interceptor works whichever region the cameras use.
+		"mqtts-eu.osaio.net",
+		"mqtts01-eu.osaio.net",
+		"wss-eu.osaio.net",
 		"ali-wss-eu.osaio.net",
 		"bombecam-mosquitto",
 	}

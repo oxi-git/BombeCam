@@ -96,7 +96,11 @@ type AllowRule struct {
 
 // Document is the compiled policy for a set of cameras.
 type Document struct {
-	Version         string    `json:"version"`
+	Version string `json:"version"`
+	// Region names the Osaio cloud the allowlist is built for. Empty means
+	// the default region (US), so documents written before regions existed
+	// keep their meaning.
+	Region          Region    `json:"region,omitempty"`
 	BlockCloudVideo bool      `json:"block_cloud_video"`
 	Subjects        []Subject `json:"subjects"`
 	// Allow is the ordered allowlist. Empty when BlockCloudVideo is false.

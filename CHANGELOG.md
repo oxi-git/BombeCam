@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+**Block cloud video**
+- **Two firewall backends.** The Firewall tab now says where the rules run and shows the truth for that backend: **Router** (OpenWrt / GL.iNet over SSH, unchanged) or **This computer** (the `bombecam-net` daemon on a Linux router, for example Home Assistant OS). Switching backend applies the saved per-camera choices to it; `in_sync` is computed from the active backend instead of always from the router, so an applied local firewall no longer reads "not applied yet".
+- `bombecam-net` reports `region`, `cameras` and `block_stream_setup` in `GET /api/v1/net/status` and accepts `POST /api/v1/net/config` to change the camera list, region and stream-setup choice at runtime; the configuration persists in `state.json` and wins over flags on restart.
+- The gateway reaches the local daemon at `http://127.0.0.1:8653` (`BOMBECAM_LOCAL_FIREWALL_URL`, optional `BOMBECAM_LOCAL_FIREWALL_KEY`). Profiles without a backend keep using the router.
+- The allowlist now supports the EU Osaio region as well as the US one: EU cameras keep their control channel (`mqtts-eu.osaio.net`, `mqtts01-eu.osaio.net`) and the stream-setup handshake (`wss-eu.osaio.net`). Choose the region under **Firewall → Osaio region** (it is no longer tied to connecting a router, because a local bombecam-net needs it too); US stays the default, and changing it reapplies the rules. A camera on the wrong region loses its app controls while blocked.
+- `bombecam-net` and `bombecam-verify` take `-region us|eu` (or `BOMBECAM_REGION`); `bombecam-policy` takes `-region`; the Docker `isolation` profile reads `BOMBECAM_REGION`.
+
 ## 1.0.0 — first public release
 
 **Gateway**

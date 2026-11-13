@@ -459,6 +459,8 @@ func main() {
 	webrtcPortFlag := flag.Int("webrtc-port", envInt("BOMBECAM_WEBRTC_PORT", 0), "WebRTC port for the built-in MediaMTX (default 8889)")
 	webrtcUDPPortFlag := flag.Int("webrtc-udp-port", envInt("BOMBECAM_WEBRTC_UDP_PORT", 0), "WebRTC media UDP port for the built-in MediaMTX (default 8189)")
 	recordingsDirFlag := flag.String("recordings-dir", getEnvOrDefault("BOMBECAM_RECORDINGS_DIR", ""), "directory to record published streams to (one subfolder per stream); empty disables recording")
+	recordingsRetentionFlag := flag.Int("recordings-retention-days", envInt("BOMBECAM_RECORDINGS_RETENTION_DAYS", 0), "delete recorded segments older than this many days (0 keeps everything)")
+	recordingsCleanupFlag := flag.Duration("recordings-cleanup-interval", envDuration("BOMBECAM_RECORDINGS_CLEANUP_INTERVAL", time.Hour), "how often to prune old recorded segments")
 	retryMaxWaitFlag := flag.Duration("retry-max-wait", envDuration("BOMBECAM_RETRY_MAX_WAIT", DefaultRetryMaxWait), "longest wait between automatic stream retries after 3 failed starts (30s, 1m, then this)")
 	strictManualFlag := flag.Bool("strict-manual", getEnvOrDefault("STRICT_MANUAL", "false") == "true", "after 3 failed stream attempts, wait for a manual retry instead of backing off and retrying")
 	headlessEnv := getEnvOrDefault("BOMBECAM_HEADLESS", "false")
@@ -548,6 +550,12 @@ func main() {
 	}
 
 	setRecordingsRoot(*recordingsDirFlag)
+	setRecordingsRetention(*recordingsRetentionFlag)
+	if *recordingsDirFlag != "" && *recordingsRetentionFlag > 0 {
+		// Prune once immediately, then on the interval.
+		go cleanRecordings()
+		StartRecordingCleanup(*recordingsCleanupFlag)
+	}
 
 	// The data folder holds the profile, operator tokens and the saved server key and app ID.
 	var profDir string

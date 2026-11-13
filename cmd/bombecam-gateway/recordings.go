@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Recording is local footage of a published stream, written by MediaMTX into
@@ -35,6 +37,102 @@ func recordingsDisabled() bool {
 	recordingsMu.Lock()
 	defer recordingsMu.Unlock()
 	return recordingsRoot == ""
+}
+
+// retention days: a recorded segment whose file is older than this many days
+// is deleted by the periodic cleanup. 0 (the default) keeps everything.
+var (
+	retentionMu   sync.Mutex
+	retentionDays int
+)
+
+// setRecordingsRetention installs the retention window in days. Call it once
+// at startup, before the cleanup loop starts.
+func setRecordingsRetention(days int) {
+	retentionMu.Lock()
+	defer retentionMu.Unlock()
+	retentionDays = days
+	if retentionDays < 0 {
+		retentionDays = 0
+	}
+}
+
+// recordingsRetention returns the current retention in days (0 = keep all).
+func recordingsRetention() int {
+	retentionMu.Lock()
+	defer retentionMu.Unlock()
+	return retentionDays
+}
+
+// cleanRecordings deletes every recorded segment older than the retention
+// window, then removes the now-empty per-stream directories it leaves behind.
+// It is a best effort and never fails: a missing root or an unwritable file is
+// ignored. MediaMTX writes the segment it is currently filling with a fresh
+// mtime, so nothing open reaches the cutoff.
+func cleanRecordings() {
+	recordingsMu.Lock()
+	root := recordingsRoot
+	recordingsMu.Unlock()
+	if root == "" {
+		return
+	}
+	days := recordingsRetention()
+	if days <= 0 {
+		return
+	}
+	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+
+	// Collect the per-stream directories while walking so we can drop the empty
+	// ones afterwards. All calls under one WalkDir keep the list stable.
+	var streamDirs []string
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != root {
+				streamDirs = append(streamDirs, path)
+			}
+			return nil
+		}
+		if !isRecordingFile(d.Name()) {
+			return nil
+		}
+		if info, err := d.Info(); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(path)
+		}
+		return nil
+	})
+
+	// Remove stream directories deepest-first; os.Remove only succeeds on an
+	// empty directory, so non-empty ones are left alone.
+	sort.Slice(streamDirs, func(i, j int) bool { return len(streamDirs[i]) > len(streamDirs[j]) })
+	for _, dir := range streamDirs {
+		_ = os.Remove(dir)
+	}
+}
+
+// StartRecordingCleanup runs a background loop that prunes old segments every
+// interval. It returns a function that stops the loop. Call it only after the
+// recording root and retention have been set.
+func StartRecordingCleanup(interval time.Duration) func() {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		if interval <= 0 {
+			interval = time.Hour
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanRecordings()
+			}
+		}
+	}()
+	return cancel
 }
 
 type recordingFile struct {
@@ -110,8 +208,9 @@ func handleRecordings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled":    true,
-		"recordings": listRecordings(),
+		"enabled":        true,
+		"retention_days": recordingsRetention(),
+		"recordings":     listRecordings(),
 	})
 }
 
