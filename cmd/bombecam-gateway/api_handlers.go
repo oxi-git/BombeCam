@@ -574,6 +574,12 @@ func SetupAPIMux(sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...
 			return
 		}
 
+		// Route: GET /api/v1/cameras/{id}/sdcard/probe  (diagnostica temporanea)
+		if len(parts) == 3 && parts[1] == "sdcard" && parts[2] == "probe" && r.Method == http.MethodGet {
+			handleSDCardProbe(w, r, camID, sessionMgr)
+			return
+		}
+
 		// Route: POST /api/v1/cameras/{id}/sdcard/playback  (get playback URL)
 		if len(parts) == 3 && parts[1] == "sdcard" && parts[2] == "playback" && r.Method == http.MethodPost {
 			handleSDCardPlayback(w, r, camID, streamMgr, sessionMgr)

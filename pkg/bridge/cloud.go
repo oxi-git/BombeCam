@@ -461,6 +461,30 @@ func (c *Cloud) ListRecordings(deviceID string, startTime, endTime int64) ([]Rec
 	return files, nil
 }
 
+// ProbePost sends one signed POST to /v2/device/{path} and reports the
+// envelope: code, msg and the data keys. It returns no values, so it can be
+// shown without exposing recordings or credentials.
+func (c *Cloud) ProbePost(path string, payload map[string]any) (code, msg any, keys []string, err error) {
+	h, herr := c.h2()
+	if herr != nil {
+		return nil, nil, nil, herr
+	}
+	h["BaseUrlName"] = "web_baseurl"
+	body, _ := json.Marshal(payload)
+	j, derr := c.do("POST", c.Web+"/v2/device/"+path, h, body)
+	if derr != nil {
+		return nil, nil, nil, derr
+	}
+	if data, ok := j["data"].(map[string]any); ok {
+		for k := range data {
+			keys = append(keys, k)
+		}
+	} else if _, ok := j["data"].([]any); ok {
+		keys = []string{"<array>"}
+	}
+	return j["code"], j["msg"], keys, nil
+}
+
 // GetPlaybackURL requests a playback URL for a specific recording file.
 // Returns a signed URL (usually HTTPS) that can be played directly.
 func (c *Cloud) GetPlaybackURL(deviceID, filePath string) (string, error) {

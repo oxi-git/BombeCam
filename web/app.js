@@ -3235,6 +3235,7 @@ async function loadSDCard() {
   const infoEl = document.getElementById('sdcard-info');
   if (!list) return;
   if (btn) btn.disabled = true;
+  const esc = v => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   try {
     const camerasRes = await apiRequest('/api/v1/integrations/streams');
     if (!camerasRes.ok) throw new Error('No cameras');
@@ -3266,7 +3267,9 @@ async function loadSDCard() {
     
     const recRes = await apiRequest('/api/v1/cameras/' + encodeURIComponent(camId) + '/sdcard/recordings');
     if (!recRes.ok) {
-      list.innerHTML = '<div class="text-muted">Could not load SD card recordings (requires Osaio sign-in).</div>';
+      let msg = 'Could not load SD card recordings.';
+      try { const e = await recRes.json(); if (e && e.error) msg = e.error; } catch (_) {}
+      list.innerHTML = '<div class="text-muted">' + esc(msg) + '</div>';
       return;
     }
     const recData = await recRes.json();
@@ -3275,7 +3278,6 @@ async function loadSDCard() {
       list.innerHTML = '<div class="text-muted">No recordings on SD card.</div>';
       return;
     }
-    const esc = v => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const rows = recs.map(r => {
       const start = r.start_time ? new Date(r.start_time * 1000).toLocaleString() : '?';
       const end = r.end_time ? new Date(r.end_time * 1000).toLocaleString() : '?';
