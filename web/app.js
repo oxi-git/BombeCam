@@ -3275,7 +3275,7 @@ async function loadSDCard() {
       list.innerHTML = '<div class="text-muted">No recordings on SD card.</div>';
       return;
     }
-    const esc = v => String(v).replace(/[&<>"']/g, c => ({'&':'&','<':'<','>':'>','"':'"',"'":'''}[c]));
+    const esc = v => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const rows = recs.map(r => {
       const start = r.start_time ? new Date(r.start_time * 1000).toLocaleString() : '?';
       const end = r.end_time ? new Date(r.end_time * 1000).toLocaleString() : '?';
