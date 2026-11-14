@@ -461,26 +461,31 @@ func (c *Cloud) ListRecordings(deviceID string, startTime, endTime int64) ([]Rec
 	return files, nil
 }
 
-// ProbePost sends one signed POST to /v2/device/{path} and reports the
+// Probe sends one signed request to /v2/device/{path} and reports the
 // envelope: code, msg and the data keys. It returns no values, so it can be
 // shown without exposing recordings or credentials.
-func (c *Cloud) ProbePost(path string, payload map[string]any) (code, msg any, keys []string, err error) {
+func (c *Cloud) Probe(method, path string, payload map[string]any) (code, msg any, keys []string, err error) {
 	h, herr := c.h2()
 	if herr != nil {
 		return nil, nil, nil, herr
 	}
 	h["BaseUrlName"] = "web_baseurl"
-	body, _ := json.Marshal(payload)
-	j, derr := c.do("POST", c.Web+"/v2/device/"+path, h, body)
+	var body []byte
+	if payload != nil {
+		h["Content-Type"] = "application/json; charset=utf-8"
+		body, _ = json.Marshal(payload)
+	}
+	j, derr := c.do(method, c.Web+"/v2/"+path, h, body)
 	if derr != nil {
 		return nil, nil, nil, derr
 	}
-	if data, ok := j["data"].(map[string]any); ok {
-		for k := range data {
+	switch d := j["data"].(type) {
+	case map[string]any:
+		for k := range d {
 			keys = append(keys, k)
 		}
-	} else if _, ok := j["data"].([]any); ok {
-		keys = []string{"<array>"}
+	case []any:
+		keys = []string{"<array:" + strconv.Itoa(len(d)) + ">"}
 	}
 	return j["code"], j["msg"], keys, nil
 }
