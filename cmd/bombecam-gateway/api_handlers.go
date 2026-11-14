@@ -574,9 +574,15 @@ func SetupAPIMux(sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...
 			return
 		}
 
-		// Route: GET /api/v1/cameras/{id}/sdcard/probe  (diagnostica temporanea)
-		if len(parts) == 3 && parts[1] == "sdcard" && parts[2] == "probe" && r.Method == http.MethodGet {
-			handleSDCardProbe(w, r, camID, sessionMgr)
+		// Route: GET /api/v1/cameras/{id}/cloud/days?month=YYYY-MM
+		if len(parts) == 3 && parts[1] == "cloud" && parts[2] == "days" && r.Method == http.MethodGet {
+			handleCameraCloudDays(w, r, camID, r.URL.Query().Get("month"), streamMgr, sessionMgr)
+			return
+		}
+
+		// Route: POST /api/v1/cameras/{id}/cloud/playback  {day, start_time}
+		if len(parts) == 3 && parts[1] == "cloud" && parts[2] == "playback" && r.Method == http.MethodPost {
+			handleCameraCloudPlayback(w, r, camID, streamMgr, sessionMgr)
 			return
 		}
 
@@ -1586,125 +1592,84 @@ func handleCameraShadow(w http.ResponseWriter, r *http.Request, camID string, st
 	_ = json.NewEncoder(w).Encode(map[string]any{"state": map[string]any{"reported": reported}, "timestamp": ts, "readback_error": readbackError})
 }
 
+// No route in the cloud API lists files on the camera's microSD card. The
+// Osaio app reads the card over P2P (YRCXSDK: DP "sdCardState", FormatInfo,
+// and its own record commands), not over HTTP; see
+// docs/technical/REFACTOR_DECISION_LOG.md. Saying so beats a call that can
+// only fail.
+const sdCardUnavailable = "The camera's SD card is read over the camera's own P2P channel, not the Osaio cloud API. BombeCam does not open that channel for recordings yet. Cloud recordings are available instead."
+
 // handleSDCardInfo handles GET /api/v1/cameras/{id}/sdcard
 func handleSDCardInfo(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, sessionMgr *SessionManager) {
 	if _, ok := streamMgr.GetCamera(camID); !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "camera not found"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-
-	cloud := sessionsFor(sessionMgr).Template().Cloud()
-	if cloud == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "Osaio cloud client not available (not signed in)"})
-		return
-	}
-
-	info, err := cloud.GetSDCardInfo(camID)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("sdcard info failed: %v", err)})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"total_space":  info.TotalSpace,
-		"free_space":   info.FreeSpace,
-		"used_space":   info.UsedSpace,
-		"status":       info.Status,
-		"status_text":  info.StatusText,
-	})
+	writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": sdCardUnavailable})
 }
 
 // handleSDCardRecordings handles GET /api/v1/cameras/{id}/sdcard/recordings
 func handleSDCardRecordings(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, sessionMgr *SessionManager) {
 	if _, ok := streamMgr.GetCamera(camID); !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "camera not found"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
+	writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": sdCardUnavailable})
+}
 
+// handleCameraCloudDays handles GET /api/v1/cameras/{id}/cloud/days?month=YYYY-MM
+func handleCameraCloudDays(w http.ResponseWriter, r *http.Request, camID, month string, streamMgr *StreamManager, sessionMgr *SessionManager) {
+	if _, ok := streamMgr.GetCamera(camID); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
+		return
+	}
 	cloud := sessionsFor(sessionMgr).Template().Cloud()
 	if cloud == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "Osaio cloud client not available (not signed in)"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "not_signed_in", "message": "Sign in to Osaio first."})
 		return
 	}
-
-	// Parse query params for time range
-	startTime := int64(0)
-	endTime := int64(0)
-	if v := r.URL.Query().Get("start_time"); v != "" {
-		if t, err := strconv.ParseInt(v, 10, 64); err == nil {
-			startTime = t
-		}
+	if month == "" {
+		month = time.Now().Format("2006-01")
 	}
-	if v := r.URL.Query().Get("end_time"); v != "" {
-		if t, err := strconv.ParseInt(v, 10, 64); err == nil {
-			endTime = t
-		}
-	}
-
-	files, err := cloud.ListRecordings(camID, startTime, endTime)
+	days, err := cloud.ListCloudRecordingDays(camID, cloud.UID, month, 1)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("recordings list failed: %v", err)})
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]any{"month": month, "days": days})
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"recordings": files,
-	})
+// handleCameraCloudPlayback handles POST /api/v1/cameras/{id}/cloud/playback
+// {day: "YYYY-MM-DD", start_time: 1712345678}
+func handleCameraCloudPlayback(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, sessionMgr *SessionManager) {
+	if _, ok := streamMgr.GetCamera(camID); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
+		return
+	}
+	cloud := sessionsFor(sessionMgr).Template().Cloud()
+	if cloud == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "not_signed_in", "message": "Sign in to Osaio first."})
+		return
+	}
+	var req struct {
+		Day       string `json:"day"`
+		StartTime int64  `json:"start_time"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil || req.Day == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "send {\"day\": \"YYYY-MM-DD\", \"start_time\": 1234567890}"})
+		return
+	}
+	u, err := cloud.GetPlaybackURL(camID, cloud.UID, req.Day, req.StartTime, 1)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"playback_url": u})
 }
 
 // handleSDCardPlayback handles POST /api/v1/cameras/{id}/sdcard/playback
 func handleSDCardPlayback(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, sessionMgr *SessionManager) {
-	if _, ok := streamMgr.GetCamera(camID); !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "camera not found"})
-		return
-	}
-
-	cloud := sessionsFor(sessionMgr).Template().Cloud()
-	if cloud == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "Osaio cloud client not available (not signed in)"})
-		return
-	}
-
-	var req struct {
-		FilePath string `json:"file_path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.FilePath == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "send {\"file_path\": \"...\"}"})
-		return
-	}
-
-	url, err := cloud.GetPlaybackURL(camID, req.FilePath)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": fmt.Sprintf("playback URL failed: %v", err)})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"playback_url": url,
-	})
+	handleSDCardInfo(w, r, camID, streamMgr, sessionMgr)
 }
 
 // handleTalkStart handles POST /api/v1/cameras/{id}/talk/start

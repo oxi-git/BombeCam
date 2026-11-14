@@ -117,3 +117,23 @@ without hardware.
 - Deploy from the fork: docs/technical/HA_DEPLOY_FORK_IMAGE.md has build + compose steps
   (including enabling MediaMTX recording in the Docker deploy, which does NOT use the gateway's
   generated config because BOMBECAM_NO_MEDIAMTX_SUPERVISOR=true).
+
+## Camera SD card and cloud recordings — what the cloud actually offers
+- Evidence: decompiled `com.afar.osaio` 4.9.0 (base.apk, sha256
+  `e015dc96d318300e74a0d249df401b85619c3ff0cb818f68e4c18c7459433462`) with JADX 1.5.1.
+- The SD card is NOT a cloud HTTP resource. The app reaches it over its own P2P channel
+  (`com.yrcx.yripc` → `YRCXSDK`, `DeviceCmdApi`, DP `sdCardState`, `FormatInfo{total,free,formatStatus}`,
+  `AbsCameraSDcardService`). Nothing under `/v2/device/...` lists files on the card; a probe of the
+  plausible paths returned 404 on every one.
+- Therefore `GET /api/v1/cameras/{id}/sdcard` and `/sdcard/recordings` now answer
+  501 `sdcard_unavailable` with a message saying why, instead of calling an invented endpoint.
+  Reading the card needs the P2P protocol, a separate piece of work.
+- What the cloud does offer (routes read verbatim from `YRPlatformApi`):
+  - `GET /v2/pack/info?uuid=` — cloud plan and storage.
+  - `GET /v2/file/info/playback?uuid&uid&file_date(YYYY-MM)&file_time&bind_type` — days with recordings.
+  - `GET /v2/app/fetch/file_event?deviceid&userid&file_date(YYYY-MM-DD)&bindtype` — events of a day.
+  - `GET /v2/segments_fetch?deviceid&userid&file_date&from_sec&to_sec&bindtype` — segments.
+  - `GET /v2/fileget_presignurl?deviceid&userid&starttime&file_type&expiration&bindtype` — signed URL.
+- Implemented: `GET /api/v1/cameras/{id}/cloud/days?month=YYYY-MM` and
+  `POST /api/v1/cameras/{id}/cloud/playback {day,start_time}`; the Streams & ports card now shows
+  cloud recordings instead of an SD card it cannot read.
