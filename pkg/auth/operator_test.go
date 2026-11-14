@@ -11,7 +11,7 @@ import (
 
 func TestOperatorManager_HostValidation(t *testing.T) {
 	om := NewOperatorManager(OperatorConfig{
-		AllowedHosts: []string{"192.168.1.100"},
+		AllowedHosts: []string{"192.168.1.100", "bombecam.home.arpa"},
 	})
 
 	tests := []struct {
@@ -29,6 +29,8 @@ func TestOperatorManager_HostValidation(t *testing.T) {
 		{"example.com", true},
 		{"192.168.1.100", true},
 		{"192.168.1.100:8654", true},
+		{"bombecam.home.arpa", true},
+		{"bombecam.home.arpa:443", true},
 		{"10.0.0.5", true}, // IP literal
 		{"untrusted.example", false},
 		{"rebind.attacker.com", false},
@@ -41,6 +43,12 @@ func TestOperatorManager_HostValidation(t *testing.T) {
 		if got != tc.valid {
 			t.Errorf("ValidateHost(%q) = %v; want %v", tc.host, got, tc.valid)
 		}
+	}
+
+	// Not named, not trusted: a DNS name has to be declared.
+	plain := NewOperatorManager(OperatorConfig{})
+	if plain.ValidateHost("bombecam.home.arpa") {
+		t.Error("an undeclared name must be refused")
 	}
 }
 

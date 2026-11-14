@@ -387,6 +387,15 @@ set_tag() { # FILE CHIAVE VALORE
 set_tag "$DOTENV" BOMBECAM_GATEWAY_IMAGE "$GW_IMAGE_TAG"
 set_tag "$DOTENV" BOMBECAM_FIREWALL_IMAGE "$FW_IMAGE_TAG"
 
+# Nomi con cui si apre BombeCam oltre agli IP (es. un reverse proxy HTTPS).
+# Senza, il gateway risponde 403 forbidden_host: un nome DNS non è un IP.
+ALLOWED_HOSTS="${ALLOWED_HOSTS:-bombecam.home.arpa}"
+if [ -n "$ALLOWED_HOSTS" ] && ! grep -qE '^BOMBECAM_ALLOWED_HOSTS=' "$(dirname "$COMPOSE")/gateway.env"; then
+	cp -p "$(dirname "$COMPOSE")/gateway.env" "$(dirname "$COMPOSE")/gateway.env.bak.$(date +%Y%m%d-%H%M%S)"
+	printf 'BOMBECAM_ALLOWED_HOSTS=%s\n' "$ALLOWED_HOSTS" >> "$(dirname "$COMPOSE")/gateway.env"
+	ok "gateway.env: BOMBECAM_ALLOWED_HOSTS=$ALLOWED_HOSTS"
+fi
+
 # Crea volume recordings se non esiste
 docker volume inspect bombecam_recordings >/dev/null 2>&1 || {
 	docker volume create bombecam_recordings >/dev/null

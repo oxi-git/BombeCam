@@ -710,6 +710,9 @@ func main() {
 	keyFile := filepath.Join(profDir, "api_tokens.json")
 	opMgr := auth.NewOperatorManager(auth.OperatorConfig{
 		KeyFile: keyFile,
+		// A name the page is reached by through a reverse proxy (for example
+		// bombecam.home.arpa) is not an IP literal, so it has to be named.
+		AllowedHosts: strings.Split(os.Getenv("BOMBECAM_ALLOWED_HOSTS"), ","),
 	})
 	SetGatewayOperatorManager(opMgr)
 
