@@ -42,8 +42,8 @@ The SD card is readable on the second one.
 
 | Purpose | Message | Payload | Reply | Evidence |
 |---|---|---|---|---|
-| SD card state | `atr.get` | `{"cmd": ["SdCardInfo"]}` | `SdCardInfo{Status, TotalSizeK, UsedSizeK}` | key `SdCardInfo` in `yripc/middleservice/helper/YRIPCHelper.java:102`; inner keys `xplayer/helper/PlayerHelper.java:222`; readers `xplayer/.../AnimalModelKt.java:17,25,33` |
-| Record days of a month | `atr.get` | `{"cmd": ["RecordDays"]}` | `curMonth`, `curMonDays`, `preMonth`, `preMonDays` (comma-separated day lists) | `xplayer/websocket/WebSocketHandler.java:365`; parse in `PlayerHelper.K0()` |
+| SD card state | `atr.get` | `["SdCardInfo"]` (key names as the payload) | `SdCardInfo{Status, TotalSizeK, UsedSizeK}` | key `SdCardInfo` in `yripc/middleservice/helper/YRIPCHelper.java:102`; inner keys `xplayer/helper/PlayerHelper.java:222`; readers `xplayer/.../AnimalModelKt.java:17,25,33` |
+| Record days of a month | `atr.get` | `["RecordDays"]` | `curMonth`, `curMonDays`, `preMonth`, `preMonDays` (comma-separated day lists) | `xplayer/websocket/WebSocketHandler.java:365`; parse in `PlayerHelper.K0()` |
 | Recordings of a day | `service.GetLocalVideoTime` | `{Start, Duration, Order, Limited}` | `response.GetLocalVideoTimeResp` → `data:{Ret, ChunkStart[], ChunkLength[], HasMore}` | `yripc/websocket/WebSocketHandlerKt.java:16,40`; payload `xplayer/.../YRPlayerComponentViewModel.java:618-623`; parse `:641-646` |
 | Playback seek | `service.Seek` | session-based | `response.SeekResp` | `WebSocketHandlerKt.java:25,52` |
 | Stream switch | `service.Switch` | `{SessionId, Action, Quality, Timestamp, call_id}` | `response.SwitchResp` | `WebSocketHandlerKt.java:31,58` — already used by the gateway |
@@ -94,3 +94,15 @@ design this before Phase 1 shows real data.
 - Never invent a message name; each one cites the file:line above.
 - Verify on the HA box with the real camera after each step.
 - The 501 stays until Phase 1 answers with real data.
+
+## Correction after the first live attempt
+
+The first version sent `atr.get` with `{"cmd": ["SdCardInfo"]}`. The camera
+answered `data=<nil>`: that envelope belongs to the ThingClips channel, not to
+YRCX. `WebSocketApi.getAtr` passes the `cmd` object through untouched, and
+`WebSocketHandler.getAllSettingAttribute()` passes a plain list of key names with
+`SdCardInfo` among them. The payload is the list itself.
+
+Evidence: `websocket/WebSocketApi.java:116` (passes `cmd` to `sendData`),
+`websocket/WebSocketHandler.java` (`getAllSettingAttribute`), observed reply
+`[ws recv] method=atr.get data=<nil>` from the WS03.
