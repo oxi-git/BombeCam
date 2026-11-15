@@ -312,13 +312,15 @@ func (s *SignalingControlChannel) GetRecordDays(ctx context.Context, cameraUUID 
 	return s.atrGet(ctx, cameraUUID, "RecordDays")
 }
 
-// atrGet reads one atr.get query (a separate reply shape from the attribute map).
+// atrGet asks for one key the way the Osaio app does: atr.get with the key
+// names as the payload (WebSocketHandler.getAllSettingAttribute lists
+// SdCardInfo among them, and WebSocketApi.getAtr sends the cmd object as-is).
 func (s *SignalingControlChannel) atrGet(ctx context.Context, cameraUUID, cmd string) (map[string]any, error) {
 	sig, err := s.getSig(cameraUUID)
 	if err != nil {
 		return nil, err
 	}
-	reply, err := sig.QueryCommand(ctx, cameraUUID, "atr.get", map[string]any{"cmd": []string{cmd}})
+	reply, err := sig.QueryCommand(ctx, cameraUUID, "atr.get", []string{cmd})
 	if err != nil {
 		return nil, fmt.Errorf("get %s failed: %w", cmd, err)
 	}

@@ -22,9 +22,12 @@ func sdCardServer(t *testing.T, answer func(m *wsMsg, cmd string) any) *wsTestSe
 			if m.Method != "atr.get" {
 				continue
 			}
-			data, _ := m.Data.(map[string]any)
-			cmds, _ := data["cmd"].([]any)
-			cmd, _ := cmds[0].(string)
+			// The app sends the key names themselves as the payload.
+			keys, _ := m.Data.([]any)
+			if len(keys) == 0 {
+				continue
+			}
+			cmd, _ := keys[0].(string)
 			body := answer(&m, cmd)
 			if body == nil {
 				continue
