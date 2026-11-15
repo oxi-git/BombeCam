@@ -3228,54 +3228,140 @@ async function loadRecordings() {
   }
 }
 
-// SD Card (Streams & ports tab). Lists recordings on camera's microSD card.
-// Camera recordings (Streams & ports tab). Days with cloud recordings, and a
-// signed playback URL per day. The camera's SD card is not reachable this way:
-// the app reads it over P2P, which BombeCam does not implement.
+// SD card and cloud recordings (Streams & ports tab). The SD card is read over
+// the gateway's camera control channel; the cloud list is per day, with a
+// signed playback URL each.
 async function loadSDCard() {
   const btn = document.getElementById('btn-refresh-sdcard');
+  const sd = document.getElementById('sdcard-card');
   const list = document.getElementById('cloud-days');
-  if (!list) return;
+  if (!list && !sd) return;
   if (btn) btn.disabled = true;
   const esc = v => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   try {
     const cams = await apiRequest('/api/v1/integrations/streams');
-    if (!cams.ok) { list.innerHTML = '<div class="text-muted">Could not list cameras.</div>'; return; }
-    const cameras = (await cams.json()).cameras || [];
-    if (cameras.length === 0) { list.innerHTML = '<div class="text-muted">No cameras added yet.</div>'; return; }
-    const camId = cameras[0].uuid || cameras[0].id;
-
-    const res = await apiRequest('/api/v1/cameras/' + encodeURIComponent(camId) + '/cloud/days');
-    if (!res.ok) {
-      let msg = 'Could not load recordings.';
-      try { const e = await res.json(); if (e && (e.message || e.error)) msg = e.message || e.error; } catch (_) {}
-      list.innerHTML = '<div class="text-muted">' + esc(msg) + '</div>';
+    if (!cams.ok) {
+      if (sd) sd.innerHTML = '<div class="text-muted">Could not list cameras.</div>';
+      if (list) list.innerHTML = '<div class="text-muted">Could not list cameras.</div>';
       return;
     }
-    const data = await res.json();
-    const days = data.days || [];
-    if (days.length === 0) { list.innerHTML = '<div class="text-muted">No cloud recordings in ' + esc(data.month || '') + '.</div>'; return; }
-    list.innerHTML = days.map(d =>
-      '<div class="port-item">' +
-        '<span class="port-name">' + esc(d.date) + '</span>' +
-        '<span class="port-desc">' + (d.count || 0) + ' recording(s)</span>' +
-        '<button class="btn btn-secondary btn-sm btn-cloud-play" data-day="' + esc(d.date) + '" data-cam="' + esc(camId) + '">Play</button>' +
-      '</div>').join('');
-    document.querySelectorAll('.btn-cloud-play').forEach(b => b.addEventListener('click', async (ev) => {
-      const el = ev.currentTarget, orig = el.textContent;
-      el.disabled = true; el.textContent = 'Loading...';
-      try {
-        const r = await apiRequest('/api/v1/cameras/' + encodeURIComponent(el.dataset.cam) + '/cloud/playback', 'POST', { day: el.dataset.day, start_time: 0 });
-        const d = await r.json();
-        if (!r.ok || !d.playback_url) throw new Error(d.message || d.error || 'no URL');
-        window.open(d.playback_url, '_blank');
-      } catch (err) { alert('Could not get playback: ' + err.message); }
-      el.textContent = orig; el.disabled = false;
-    }));
+    const cameras = (await cams.json()).cameras || [];
+    if (cameras.length === 0) {
+      if (sd) sd.innerHTML = '<div class="text-muted">No cameras added yet.</div>';
+      if (list) list.innerHTML = '';
+      return;
+    }
+    const camId = cameras[0].uuid || cameras[0].id;
+    const camPath = '/api/v1/cameras/' + encodeURIComponent(camId);
+
+    if (sd) await renderSDCard(sd, camPath, esc);
+    if (list) await renderCloudDays(list, camPath, camId, esc);
   } catch (err) {
     console.warn('[recordings] load error:', err);
-    list.innerHTML = '<div class="text-muted">Could not load recordings.</div>';
+    if (sd) sd.innerHTML = '<div class="text-muted">Could not load the SD card.</div>';
+    if (list) list.innerHTML = '<div class="text-muted">Could not load recordings.</div>';
   } finally { if (btn) btn.disabled = false; }
+}
+
+// errorMessageOf reads a handler's {message} or {error} so the UI can show it.
+async function errorMessageOf(res, fallback) {
+  try { const e = await res.json(); if (e && (e.message || e.error)) return e.message || e.error; } catch (_) {}
+  return fallback;
+}
+
+async function renderSDCard(el, camPath, esc) {
+  const statusRes = await apiRequest(camPath + '/sdcard');
+  if (!statusRes.ok) {
+    // 501 = the camera does not take this query; 502 = it did not answer.
+    if (statusRes.status === 501) {
+      el.innerHTML = '<div class="text-muted">No SD card: this camera does not answer SD card queries over the control channel.</div>';
+      return;
+    }
+    el.innerHTML = '<div class="text-muted">' + esc(await errorMessageOf(statusRes, 'Could not read the SD card.')) + '</div>';
+    return;
+  }
+  const info = await statusRes.json();
+  const status = String(info.status || '');
+  const known = info.total_kb !== undefined || info.used_kb !== undefined;
+
+  const rows = [];
+  if (!known && !status) {
+    el.innerHTML = '<div class="port-item"><span class="port-name">SD card</span>' +
+      '<span class="port-desc">No reply from the camera yet.</span></div>';
+    return;
+  } else if (/no.?card|nocard|empty|absent/i.test(status) || (known && Number(info.total_kb) === 0)) {
+    rows.push('<div class="port-item"><span class="port-name">SD card</span>' +
+      '<span class="port-desc">No card inserted.</span></div>');
+  } else {
+    const total = info.total_kb === undefined ? null : Number(info.total_kb) * 1024;
+    const used = info.used_kb === undefined ? null : Number(info.used_kb) * 1024;
+    let desc;
+    if (used !== null && total !== null) desc = formatBytes(used) + ' of ' + formatBytes(total) + ' used';
+    else if (total !== null) desc = formatBytes(total) + ' total';
+    else if (used !== null) desc = formatBytes(used) + ' used';
+    else desc = 'Status ' + esc(status);
+    if (status && total !== null) desc += ' &middot; status ' + esc(status);
+    rows.push('<div class="port-item"><span class="port-name">SD card</span>' +
+      '<span class="port-desc">' + desc + '</span></div>');
+  }
+
+  const daysRes = await apiRequest(camPath + '/sdcard/recordings');
+  if (!daysRes.ok) {
+    rows.push('<div class="port-item"><span class="port-name">Days with recordings</span>' +
+      '<span class="port-desc">' + esc(await errorMessageOf(daysRes, 'Could not read the SD card record days.')) + '</span></div>');
+  } else {
+    const d = await daysRes.json();
+    const today = new Date().toISOString().slice(0, 10);
+    for (const [month, field] of [[d.cur_month, 'cur_days'], [d.prev_month, 'prev_days']]) {
+      const dates = String(d[field] || '').split(',').map(s => s.trim()).filter(Boolean).map(day => {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return day;
+        if (/^\d{4}-\d{2}$/.test(String(month)) && /^\d{1,2}$/.test(day)) return String(month) + '-' + day.padStart(2, '0');
+        return day;
+      });
+      for (const date of dates) {
+        rows.push('<div class="port-item">' +
+          '<span class="port-name">' + esc(date) + '</span>' +
+          '<span class="port-desc">On the SD card' + (date === today ? ' &middot; today' : '') + '</span>' +
+          '</div>');
+      }
+    }
+    if (rows.length === 0) {
+      rows.push('<div class="port-item"><span class="port-name">Days with recordings</span>' +
+        '<span class="port-desc">The camera reported no recorded days.</span></div>');
+    }
+  }
+  el.innerHTML = rows.join('');
+}
+
+async function renderCloudDays(list, camPath, camId, esc) {
+  const res = await apiRequest(camPath + '/cloud/days');
+  if (!res.ok) {
+    list.innerHTML = '<div class="text-muted">Cloud: ' + esc(await errorMessageOf(res, 'Could not load recordings.')) + '</div>';
+    return;
+  }
+  const data = await res.json();
+  const days = data.days || [];
+  if (days.length === 0) {
+    list.innerHTML = '<div class="text-muted">Cloud: no recordings in ' + esc(data.month || '') + '.</div>';
+    return;
+  }
+  list.innerHTML = days.map(d =>
+    '<div class="port-item">' +
+      '<span class="port-name">' + esc(d.date) + '</span>' +
+      '<span class="port-desc">Cloud &middot; ' + (d.count || 0) + ' recording(s)</span>' +
+      '<button class="btn btn-secondary btn-sm btn-cloud-play" data-day="' + esc(d.date) + '" data-cam="' + esc(camId) + '">Play</button>' +
+    '</div>').join('');
+  document.querySelectorAll('.btn-cloud-play').forEach(b => b.addEventListener('click', async (ev) => {
+    const el = ev.currentTarget, orig = el.textContent;
+    el.disabled = true; el.textContent = 'Loading...';
+    try {
+      const r = await apiRequest(camPath + '/cloud/playback', 'POST', { day: el.dataset.day, start_time: 0 });
+      const d = await r.json();
+      if (!r.ok || !d.playback_url) throw new Error(d.message || d.error || 'no URL');
+      window.open(d.playback_url, '_blank');
+    } catch (err) { alert('Could not get playback: ' + err.message); }
+    el.textContent = orig; el.disabled = false;
+  }));
 }
 
 function formatBytes(bytes) {

@@ -478,13 +478,16 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <h2 class="card-title">Camera recordings (cloud)</h2>
-              <p class="card-subtitle">Days with recordings on your Osaio cloud plan. The camera's microSD card is read over its own P2P channel, which BombeCam does not open.</p>
+              <h2 class="card-title">Camera recordings (SD card and cloud)</h2>
+              <p class="card-subtitle">The camera's microSD card first; then days with recordings on your Osaio cloud plan.</p>
             </div>
             <button id="btn-refresh-sdcard" class="btn btn-secondary btn-sm">🔄 Refresh</button>
           </div>
           <div class="card-body">
-            <div id="cloud-days" class="stream-list">
+            <div id="sdcard-card" class="stream-list">
+              <div class="text-muted">Loading...</div>
+            </div>
+            <div id="cloud-days" class="stream-list" style="margin-top: 12px;">
               <div class="text-muted">Loading...</div>
             </div>
           </div>

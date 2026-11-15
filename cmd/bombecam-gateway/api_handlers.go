@@ -1592,12 +1592,93 @@ func handleCameraShadow(w http.ResponseWriter, r *http.Request, camID string, st
 	_ = json.NewEncoder(w).Encode(map[string]any{"state": map[string]any{"reported": reported}, "timestamp": ts, "readback_error": readbackError})
 }
 
-// No route in the cloud API lists files on the camera's microSD card. The
-// Osaio app reads the card over P2P (YRCXSDK: DP "sdCardState", FormatInfo,
-// and its own record commands), not over HTTP; see
-// docs/technical/REFACTOR_DECISION_LOG.md. Saying so beats a call that can
-// only fail.
-const sdCardUnavailable = "The camera's SD card is read over the camera's own P2P channel, not the Osaio cloud API. BombeCam does not open that channel for recordings yet. Cloud recordings are available instead."
+// The SD card is read on the control channel (atr.get SdCardInfo / RecordDays);
+// see docs/technical/SDCARD_P2P_PLAN.md. When the active channel cannot answer,
+// saying so beats a call that can only fail.
+const sdCardUnavailable = "The camera did not answer over the control channel. SD card state and the days it holds need a live camera connection."
+
+// sdcardFetcher is the optional capability of a control channel that can query
+// the camera's SD card. Like GetAttributes, it stays off bridge.ControlChannel.
+type sdcardFetcher interface {
+	GetSDCardInfo(ctx context.Context, cameraUUID string) (map[string]any, error)
+	GetRecordDays(ctx context.Context, cameraUUID string) (map[string]any, error)
+}
+
+func sdcardChannel(cc bridge.ControlChannel) (sdcardFetcher, bool) {
+	f, ok := cc.(sdcardFetcher)
+	return f, ok && f != nil
+}
+
+// sdcardField finds a reply value, tolerating one extra map nesting
+// ("data" or any other single wrapper) around the fields.
+func sdcardField(raw map[string]any, keys ...string) (any, bool) {
+	nested := make([]map[string]any, 0, 1)
+	for _, v := range raw {
+		if m, ok := v.(map[string]any); ok {
+			nested = append(nested, m)
+		}
+	}
+	for _, key := range keys {
+		if v, ok := raw[key]; ok && v != nil {
+			return v, true
+		}
+		for _, m := range nested {
+			if v, ok := m[key]; ok && v != nil {
+				return v, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func sdcardText(raw map[string]any, keys ...string) (string, bool) {
+	v, ok := sdcardField(raw, keys...)
+	if !ok {
+		return "", false
+	}
+	switch s := v.(type) {
+	case string:
+		return s, s != ""
+	case float64, int, int64, json.Number:
+		return fmt.Sprint(s), true
+	case []any:
+		parts := make([]string, 0, len(s))
+		for _, p := range s {
+			parts = append(parts, fmt.Sprint(p))
+		}
+		joined := strings.Join(parts, ",")
+		return joined, joined != ""
+	}
+	return "", false
+}
+
+func sdcardNumber(raw map[string]any, keys ...string) (float64, bool) {
+	v, ok := sdcardField(raw, keys...)
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		if f, err := n.Float64(); err == nil {
+			return f, true
+		}
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(n), 64); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+func sdcardContext(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), 5*time.Second)
+}
 
 // handleSDCardInfo handles GET /api/v1/cameras/{id}/sdcard
 func handleSDCardInfo(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, sessionMgr *SessionManager) {
@@ -1605,7 +1686,29 @@ func handleSDCardInfo(w http.ResponseWriter, r *http.Request, camID string, stre
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-	writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": sdCardUnavailable})
+	fetcher, ok := sdcardChannel(cameraControl(streamMgr, camID))
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": sdCardUnavailable})
+		return
+	}
+	ctx, cancel := sdcardContext(r)
+	defer cancel()
+	raw, err := fetcher.GetSDCardInfo(ctx, camID)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "sdcard_unavailable", "message": err.Error()})
+		return
+	}
+	out := map[string]any{"raw": raw}
+	if v, ok := sdcardText(raw, "Status", "status"); ok {
+		out["status"] = v
+	}
+	if v, ok := sdcardNumber(raw, "TotalSizeK", "total_kb", "totalSizeK"); ok {
+		out["total_kb"] = v
+	}
+	if v, ok := sdcardNumber(raw, "UsedSizeK", "used_kb", "usedSizeK"); ok {
+		out["used_kb"] = v
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleSDCardRecordings handles GET /api/v1/cameras/{id}/sdcard/recordings
@@ -1614,7 +1717,30 @@ func handleSDCardRecordings(w http.ResponseWriter, r *http.Request, camID string
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-	writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": sdCardUnavailable})
+	fetcher, ok := sdcardChannel(cameraControl(streamMgr, camID))
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": sdCardUnavailable})
+		return
+	}
+	ctx, cancel := sdcardContext(r)
+	defer cancel()
+	raw, err := fetcher.GetRecordDays(ctx, camID)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "sdcard_unavailable", "message": err.Error()})
+		return
+	}
+	out := map[string]any{"raw": raw}
+	for field, keys := range map[string][]string{
+		"cur_month":  {"curMonth", "cur_month"},
+		"cur_days":   {"curMonDays", "cur_days"},
+		"prev_month": {"preMonth", "prevMonth", "pre_month"},
+		"prev_days":  {"preMonDays", "prev_days"},
+	} {
+		if v, ok := sdcardText(raw, keys...); ok {
+			out[field] = v
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleCameraCloudDays handles GET /api/v1/cameras/{id}/cloud/days?month=YYYY-MM

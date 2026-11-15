@@ -51,6 +51,7 @@ type Signaling struct {
 	mu             sync.Mutex
 	OnMsg          func(method string, data any)
 	queries        map[string]*attributeQuery
+	cmdQueries     map[string]*cmdQuery
 	observations   map[string]attributeObservation
 	attributeEpoch map[string]uint64
 
@@ -187,6 +188,12 @@ func (s *Signaling) readLoop(conn *websocket.Conn) {
 		if err := json.Unmarshal(raw, &m); err != nil {
 			continue
 		}
+		// Command replies are matched before anything else: the gateway's
+		// OnMsg callback blocks and can switch the camera, which would leave
+		// the reply unrecognised.
+		s.mu.Lock()
+		s.answerCmdLocked(conn, m)
+		s.mu.Unlock()
 		if m.Method != "event.Heartbeat" {
 			summary := fmt.Sprintf("%+v", m.Data)
 			if strings.Contains(m.Method, "Sdp") || len(summary) > 300 {
@@ -469,6 +476,91 @@ func (s *Signaling) failQueriesLocked(conn *websocket.Conn, err error) {
 			delete(s.queries, id)
 		}
 	}
+	for id, q := range s.cmdQueries {
+		if conn == nil || q.conn == conn {
+			select {
+			case q.result <- cmdResult{err: err}:
+			default:
+			}
+			delete(s.cmdQueries, id)
+		}
+	}
+}
+
+type cmdResult struct {
+	data any
+	err  error
+}
+
+type cmdQuery struct {
+	camera string
+	method string
+	conn   *websocket.Conn
+	result chan cmdResult
+}
+
+// QueryCommand sends method with data and returns the correlated reply's Data
+// as the camera sent it. A reply counts only on this camera's current
+// connection and with the message id of this request. Its method must be the
+// sent one or the vendor's "response." form of it: "atr.get" answers as
+// "atr.get" (as QueryAttributes relies on), while a "service." method answers
+// as "response."+its name (WebSocketApi.java:83,89). The message stays
+// available to OnMsg.
+func (s *Signaling) QueryCommand(ctx context.Context, camera, method string, data any) (any, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	if camera == "" || s.uuid != camera {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("camera connection is not bound to %s", camera)
+	}
+	s.seq++
+	id := msgID(s.seq)
+	q := &cmdQuery{camera: camera, method: method, conn: s.conn, result: make(chan cmdResult, 1)}
+	if s.cmdQueries == nil {
+		s.cmdQueries = make(map[string]*cmdQuery)
+	}
+	s.cmdQueries[id] = q
+	deadline, _ := ctx.Deadline()
+	err := s.sendLocked(method, data, id, deadline)
+	s.mu.Unlock()
+	defer func() { s.mu.Lock(); delete(s.cmdQueries, id); s.mu.Unlock() }()
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case result := <-q.result:
+		return result.data, result.err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("camera did not answer %s: %w", method, ctx.Err())
+	}
+}
+
+func replyMethod(method string) string {
+	if suffix, ok := strings.CutPrefix(method, "service."); ok {
+		return "response." + suffix
+	}
+	return method
+}
+
+// answerCmdLocked completes the pending command query this message answers.
+// It runs before OnMsg, which may block and switch the camera.
+func (s *Signaling) answerCmdLocked(conn *websocket.Conn, m wsMsg) {
+	q := s.cmdQueries[m.MsgID]
+	if q == nil || q.conn != conn || conn != s.conn || m.UUID != q.camera {
+		return
+	}
+	if m.Method != q.method && m.Method != replyMethod(q.method) {
+		return
+	}
+	select {
+	case q.result <- cmdResult{data: m.Data}:
+	default:
+	}
+	delete(s.cmdQueries, m.MsgID)
 }
 
 func (s *Signaling) deliverAttributesLocked(conn *websocket.Conn, m wsMsg) {

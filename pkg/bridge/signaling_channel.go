@@ -301,6 +301,34 @@ func (s *SignalingControlChannel) GetAttributes(ctx context.Context, camera stri
 	return sig.QueryAttributes(ctx, camera, keys...)
 }
 
+// GetSDCardInfo returns the camera's card state: Status, TotalSizeK, UsedSizeK.
+func (s *SignalingControlChannel) GetSDCardInfo(ctx context.Context, cameraUUID string) (map[string]any, error) {
+	return s.atrGet(ctx, cameraUUID, "SdCardInfo")
+}
+
+// GetRecordDays returns curMonth, curMonDays, preMonth, preMonDays, the day
+// lists comma-separated.
+func (s *SignalingControlChannel) GetRecordDays(ctx context.Context, cameraUUID string) (map[string]any, error) {
+	return s.atrGet(ctx, cameraUUID, "RecordDays")
+}
+
+// atrGet reads one atr.get query (a separate reply shape from the attribute map).
+func (s *SignalingControlChannel) atrGet(ctx context.Context, cameraUUID, cmd string) (map[string]any, error) {
+	sig, err := s.getSig(cameraUUID)
+	if err != nil {
+		return nil, err
+	}
+	reply, err := sig.QueryCommand(ctx, cameraUUID, "atr.get", map[string]any{"cmd": []string{cmd}})
+	if err != nil {
+		return nil, fmt.Errorf("get %s failed: %w", cmd, err)
+	}
+	body, ok := reply.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%s reply is not an object: %T", cmd, reply)
+	}
+	return body, nil
+}
+
 func ParseCameraAttributeNumber(v any) (int, bool) {
 	switch n := v.(type) {
 	case int:
