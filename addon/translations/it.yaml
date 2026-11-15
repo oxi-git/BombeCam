@@ -1,0 +1,56 @@
+repository:
+  bombe_cam_addon:
+    name: Add-on BombeCam
+    url: https://github.com/Fever-r/BombeCam
+configuration:
+  admin_name:
+    name: Nome amministratore
+    description: L'amministratore di BombeCam, non un account Osaio. Viene creato all'avvio se non esiste ancora.
+  admin_password:
+    name: Password amministratore
+    description: Almeno 8 caratteri. Lascia vuoto per creare l'amministratore dopo, dalla pagina del gateway.
+  osaio_email:
+    name: E-mail dell'account Osaio
+  osaio_password:
+    name: Password dell'account Osaio
+  osaio_country:
+    name: Regione Osaio
+    description: Lascia vuoto se l'account usa la regione predefinita.
+  osaio_enrolled:
+    name: Telecamere da trasmettere
+    description: ID delle telecamere, separati da virgola, presi dalla ricerca autenticata. Vuoto non avvia nessun flusso.
+  camera_ip:
+    name: IP delle telecamere
+    description: IP fisso per le telecamere trovate sulla rete locale. Vuoto lascia a ognuna il proprio indirizzo.
+  camera_subnet:
+    name: Sottorete delle telecamere
+    description: La sottorete in cui vivono le telecamere, per esempio 192.168.1.0/24.
+  http_bind:
+    name: Indirizzo della pagina e dell'API
+    description: Con 0.0.0.0 il gateway risponde sulla rete locale, cosa che serve all'integrazione di Home Assistant.
+  http_port:
+    name: Porta della pagina e dell'API
+  control_transport:
+    name: Trasporto dei comandi
+    description: cloud usa i server Osaio; mqtt è il broker locale sperimentale.
+  mqtt_url:
+    name: URL del broker MQTT
+    description: Serve solo con il trasporto mqtt. L'add-on Mosquitto di Home Assistant ascolta su tcp://127.0.0.1:1883.
+  strict_manual:
+    name: Modalità manuale stretta
+    description: Avvia solo i flussi scelti a mano.
+  video_only_devices:
+    name: Telecamere senza audio
+    description: ID delle telecamere, separati da virgola, trasmesse senza audio.
+  timezone:
+    name: Fuso orario
+    description: Nome IANA come Europe/Rome, usato dalle telecamere per le programmazioni.
+  timezone_offset:
+    name: Scostamento dal fuso
+    description: Secondi di scostamento da UTC, usati quando non c'è un nome del fuso.
+  recording_enabled:
+    name: Registra i flussi in locale
+    description: Ogni flusso pubblicato viene salvato come MP4 frammentato nella cartella delle registrazioni.
+  recording_retention_days:
+    name: Elimina le registrazioni dopo
+    description: Giorni prima di cancellare le registrazioni. 0 le conserva per sempre.

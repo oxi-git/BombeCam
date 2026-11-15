@@ -1,0 +1,56 @@
+repository:
+  bombe_cam_addon:
+    name: BombeCam Add-ons
+    url: https://github.com/Fever-r/BombeCam
+configuration:
+  admin_name:
+    name: Administrator name
+    description: BombeCam's own administrator account, not an Osaio login. Created at start-up when no administrator exists yet.
+  admin_password:
+    name: Administrator password
+    description: At least 8 characters. Leave empty to create the administrator later on the gateway page.
+  osaio_email:
+    name: Osaio account e-mail
+  osaio_password:
+    name: Osaio account password
+  osaio_country:
+    name: Osaio region
+    description: Leave empty when the account is in the default region.
+  osaio_enrolled:
+    name: Cameras to stream
+    description: Comma-separated camera IDs from authenticated discovery. Leave empty to start no camera streams.
+  camera_ip:
+    name: Camera IP
+    description: Fixed IP for cameras found on the local network. Empty lets them keep their own address.
+  camera_subnet:
+    name: Camera subnet
+    description: Subnet the cameras live in, for example 192.168.1.0/24.
+  http_bind:
+    name: Page and API bind address
+    description: 0.0.0.0 makes the gateway reachable from the local network, which the Home Assistant integration needs.
+  http_port:
+    name: Page and API port
+  control_transport:
+    name: Camera control transport
+    description: cloud talks to Osaio's servers; mqtt is the experimental local broker.
+  mqtt_url:
+    name: MQTT broker URL
+    description: Used only when the control transport is mqtt. The Home Assistant Mosquitto add-on listens on tcp://127.0.0.1:1883.
+  strict_manual:
+    name: Strict manual mode
+    description: Only start streams that were selected by hand.
+  video_only_devices:
+    name: Cameras without audio
+    description: Comma-separated camera IDs streamed without audio, for cameras whose audio track misbehaves.
+  timezone:
+    name: Timezone
+    description: IANA name such as Europe/Rome, used by the cameras for schedules.
+  timezone_offset:
+    name: Timezone offset
+    description: Offset in seconds from UTC, used when no timezone name is set.
+  recording_enabled:
+    name: Record streams locally
+    description: Keeps every published stream as fragmented MP4 in the add-on's recordings folder.
+  recording_retention_days:
+    name: Keep recordings for
+    description: Days before recordings are deleted. 0 keeps them forever.

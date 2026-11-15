@@ -1,0 +1,52 @@
+name: BombeCam
+version: "1.0.0"
+slug: bombecam
+description: BombeCam gateway with MediaMTX, local recording and the Home Assistant bridge
+url: https://github.com/Fever-r/BombeCam/tree/main/addon
+arch:
+  - amd64
+  - aarch64
+  - armv7
+startup: services
+boot: auto
+host_network: true
+ingress: false
+init: false
+options:
+  admin_name: admin
+  admin_password: ""
+  osaio_email: ""
+  osaio_password: ""
+  osaio_country: ""
+  osaio_enrolled: ""
+  camera_ip: ""
+  camera_subnet: ""
+  http_bind: "0.0.0.0"
+  http_port: 8654
+  control_transport: cloud
+  mqtt_url: "tcp://127.0.0.1:1883"
+  strict_manual: false
+  video_only_devices: ""
+  timezone: ""
+  timezone_offset: ""
+  recording_enabled: true
+  recording_retention_days: 0
+schema:
+  admin_name: str
+  admin_password: password
+  osaio_email: email
+  osaio_password: password
+  osaio_country: list(|us|eu)
+  osaio_enrolled: str
+  camera_ip: str
+  camera_subnet: str
+  http_bind: str
+  http_port: port
+  control_transport: list(cloud|mqtt)
+  mqtt_url: str
+  strict_manual: bool
+  video_only_devices: str
+  timezone: str
+  timezone_offset: str
+  recording_enabled: bool
+  recording_retention_days: int(0,3650)

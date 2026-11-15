@@ -1,0 +1,70 @@
+# ==============================================================================
+# BombeCam - MediaMTX configuration for the Docker/Linux deployment
+# (the Windows app generates an equivalent file on every launch;
+# TestDeployConfigMatchesGenerated keeps the two the same).
+# Pinned to MediaMTX v1.9.3: every key here must exist in that release, or
+# MediaMTX refuses to start.
+# ==============================================================================
+logLevel: info
+logDestinations: [stdout]
+
+# Only the gateway on this host may publish or use the management API; it
+# reads without a password too (snapshots, friendly stream names).
+# Anyone on the network may read (RTSP/HLS/WebRTC) so NVRs like Frigate can connect.
+# To require a password for other devices, replace the second user below with
+#   - user: <name>
+#     pass: <password>
+#     ips: []
+#     permissions: [{action: read}, {action: playback}]
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: ['127.0.0.1', '::1']
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+      - action: api
+      - action: metrics
+      - action: pprof
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+      - action: playback
+
+api: yes
+apiAddress: 127.0.0.1:9997
+# MediaMTX answers cross-origin requests from any web page unless told
+# otherwise. BombeCam's viewer reaches the API, HLS and WebRTC through the
+# gateway, so only the gateway's own origin is allowed.
+apiAllowOrigin: 'http://127.0.0.1:8654'
+
+rtsp: yes
+rtspAddress: :8554
+protocols: [tcp, udp]
+# RTSP over UDP. If ports 8000/8001 are taken on this machine, change both
+# (RTP even, RTCP = RTP + 1); players learn them when they connect.
+rtpAddress: :8000
+rtcpAddress: :8001
+
+rtmp: no
+srt: no
+
+hls: yes
+hlsAddress: :8888
+hlsAllowOrigin: 'http://127.0.0.1:8654'
+hlsAlwaysRemux: yes
+hlsVariant: mpegts
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigin: 'http://127.0.0.1:8654'
+webrtcLocalUDPAddress: :8189
+
+paths:
+  all_others:
