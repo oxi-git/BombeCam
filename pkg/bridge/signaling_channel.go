@@ -328,6 +328,10 @@ func (s *SignalingControlChannel) atrGet(ctx context.Context, cameraUUID, cmd st
 	if !ok {
 		return nil, fmt.Errorf("%s reply is not an object: %T", cmd, reply)
 	}
+	// The camera answers {cmd: {...}}, while callers want the values.
+	if nested, ok := body[cmd].(map[string]any); ok {
+		return nested, nil
+	}
 	return body, nil
 }
 

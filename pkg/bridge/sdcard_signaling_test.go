@@ -64,10 +64,10 @@ func TestSDCardInfoResolvesOnCorrelatedReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	info, _ := body["SdCardInfo"].(map[string]any)
+	// {SdCardInfo: {...}} is unwrapped: the caller wants the values.
 	for k, want := range state {
-		if info[k] != want {
-			t.Fatalf("%s = %v, want %v (reply %v)", k, info[k], want, body)
+		if body[k] != want {
+			t.Fatalf("%s = %v, want %v (reply %v)", k, body[k], want, body)
 		}
 	}
 }
@@ -115,8 +115,7 @@ func TestSDCardInfoResolvesOnAtrPostReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	info, _ := body["SdCardInfo"].(map[string]any)
-	if info["TotalSizeK"] != 31251968.0 || info["UsedSizeK"] != 11638464.0 {
+	if body["TotalSizeK"] != 31251968.0 || body["UsedSizeK"] != 11638464.0 {
 		t.Fatalf("reply = %v", body)
 	}
 }
@@ -140,7 +139,7 @@ func TestSDCardQueryRejectsUncorrelatedReply(t *testing.T) {
 			sig := sdCardSignaling(t, ts)
 			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 			defer cancel()
-			if body, err := sig.QueryCommand(ctx, "fixture", "atr.get", map[string]any{"cmd": []string{"SdCardInfo"}}); err == nil {
+			if body, err := sig.QueryCommand(ctx, "fixture", "atr.get", []string{"SdCardInfo"}); err == nil {
 				t.Fatalf("uncorrelated reply returned %v", body)
 			}
 		})
