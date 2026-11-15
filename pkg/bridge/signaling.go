@@ -334,6 +334,21 @@ func (s *Signaling) Send(method string, data any) error {
 	return s.sendLocked(method, data, msgID(s.seq), time.Now().Add(10*time.Second))
 }
 
+// isAttributePoll reports the periodic atr.get for the IR/LED keys, the one
+// message that repeats every few seconds; logging it would bury everything else.
+func isAttributePoll(data any) bool {
+	keys, ok := data.([]string)
+	if !ok {
+		return false
+	}
+	for _, k := range keys {
+		if k == "SdCardInfo" || k == "RecordDays" {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Signaling) sendLocked(method string, data any, id string, deadline time.Time) error {
 	if s.conn == nil {
 		return fmt.Errorf("signaling not connected")
@@ -354,6 +369,13 @@ func (s *Signaling) sendLocked(method string, data any, id string, deadline time
 	m := wsMsg{Method: method, MsgID: id, Ver: "1.0", Origin: 1,
 		Time: time.Now().Unix(), UUID: s.uuid, DeviceModel: s.model, Data: data}
 	raw, _ := json.Marshal(m)
+	if method != "atr.get" || !isAttributePoll(data) {
+		summary := fmt.Sprintf("%+v", data)
+		if len(summary) > 200 {
+			summary = summary[:200] + "..."
+		}
+		fmt.Printf("[ws send] method=%s id=%s data=%s\n", method, id, summary)
+	}
 	_ = s.conn.SetWriteDeadline(deadline)
 	if err := s.conn.WriteMessage(websocket.TextMessage, raw); err != nil {
 		// A failed write means the socket is gone. Close it so the read loop
@@ -559,6 +581,9 @@ func (s *Signaling) answerCmdLocked(conn *websocket.Conn, m wsMsg) {
 	select {
 	case q.result <- cmdResult{data: m.Data}:
 	default:
+	}
+	if m.Data == nil {
+		fmt.Printf("[ws] %s answered nil for %+v\n", m.Method, q.method)
 	}
 	delete(s.cmdQueries, m.MsgID)
 }

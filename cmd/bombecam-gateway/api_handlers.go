@@ -1686,9 +1686,9 @@ func handleSDCardInfo(w http.ResponseWriter, r *http.Request, camID string, stre
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-	fetcher, ok := sdcardChannel(cameraControl(streamMgr, camID))
+	fetcher, ok := sdcardChannel(cameraSignalingControl(streamMgr, camID))
 	if !ok {
-		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": sdCardUnavailable})
+		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": "The camera is not connected over its control channel. Start a stream, then try again."})
 		return
 	}
 	ctx, cancel := sdcardContext(r)
@@ -1717,9 +1717,9 @@ func handleSDCardRecordings(w http.ResponseWriter, r *http.Request, camID string
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-	fetcher, ok := sdcardChannel(cameraControl(streamMgr, camID))
+	fetcher, ok := sdcardChannel(cameraSignalingControl(streamMgr, camID))
 	if !ok {
-		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": sdCardUnavailable})
+		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": "The camera is not connected over its control channel. Start a stream, then try again."})
 		return
 	}
 	ctx, cancel := sdcardContext(r)

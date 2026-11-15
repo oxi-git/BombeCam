@@ -83,12 +83,26 @@ func TestSDCardEndpointsMapReply(t *testing.T) {
 		t.Fatalf("enroll: %v", err)
 	}
 
-	// The info reply is nested one level down and carries no used size.
-	fake := &sdcardFakeChannel{
-		info: map[string]any{"data": map[string]any{"Status": "1", "TotalSizeK": float64(31268864)}},
-		days: map[string]any{"curMonth": "2026-11", "curMonDays": "1,2,3", "preMonth": "2026-10", "preMonDays": "31"},
+	// The SD card is read on the camera's own YRCX socket, so the test answers
+	// atr.get there. The reply is nested one level down and carries no used size.
+	fake := &fakeVendorWS{reported: map[string]any{
+		"data": map[string]any{"Status": "1", "TotalSizeK": float64(31268864),
+			"curMonth": "2026-11", "curMonDays": "1,2,3", "preMonth": "2026-10", "preMonDays": "31"},
+	}}
+	srv := httptest.NewServer(http.HandlerFunc(fake.handler))
+	defer srv.Close()
+	sig, err := bridge.Connect("ws"+strings.TrimPrefix(srv.URL, "http"), "tok", "uid-1", "39")
+	if err != nil {
+		t.Fatal(err)
 	}
-	SetGatewayControlChannel(fake)
+	defer sig.Close()
+	sig.BindCamera("cam-sd", "WS03")
+	streamMgr.SetStreamActive("cam-sd", true, nil, sig, "test")
+	defer streamMgr.SetStreamActive("cam-sd", false, nil, nil, "")
+
+	// A local MQTT control channel is what a firewall-backend deploy configures;
+	// it cannot answer an atr.get, and the handlers must still reach the socket.
+	SetGatewayControlChannel(&sdcardFakeChannel{})
 	defer SetGatewayControlChannel(nil)
 
 	rec := httptest.NewRecorder()
@@ -123,7 +137,7 @@ func TestSDCardEndpointsMapReply(t *testing.T) {
 		days["prev_month"] != "2026-10" || days["prev_days"] != "31" {
 		t.Fatalf("recordings: unexpected %v", days)
 	}
-	if len(fake.calls) != 2 {
-		t.Fatalf("expected one call per endpoint, got %v", fake.calls)
+	if got, ok := fake.find("atr.get", "Status"); ok && got != nil {
+		t.Fatalf("atr.get carried the reply body as its payload: %v", got)
 	}
 }

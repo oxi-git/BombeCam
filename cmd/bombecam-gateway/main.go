@@ -165,6 +165,26 @@ func cameraControl(streamMgr *StreamManager, camID string) bridge.ControlChannel
 	return nil
 }
 
+// cameraSignalingControl returns the camera's own YRCX socket channel, whatever
+// the configured transport is. SD card reads are atr.get on that socket, so a
+// local MQTT control channel cannot answer them.
+func cameraSignalingControl(streamMgr *StreamManager, camID string) bridge.ControlChannel {
+	if streamMgr != nil {
+		if mc, ok := streamMgr.GetCamera(camID); ok && mc != nil {
+			mc.mu.RLock()
+			sig := mc.Signaling
+			mc.mu.RUnlock()
+			if sig != nil {
+				return bridge.NewSignalingControlChannel(sig)
+			}
+		}
+	}
+	if cs := findTargetCam(camID); cs != nil && cs.sig != nil {
+		return bridge.NewSignalingControlChannel(cs.sig)
+	}
+	return nil
+}
+
 func getEnvOrDefault(envKey, defVal string) string {
 	if val := os.Getenv(envKey); val != "" {
 		return val
