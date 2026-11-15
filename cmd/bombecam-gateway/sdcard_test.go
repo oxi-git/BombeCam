@@ -52,11 +52,11 @@ type sdcardFakeChannel struct {
 }
 
 func (f *sdcardFakeChannel) MovePTZ(context.Context, string, int, int) error { return nil }
-func (f *sdcardFakeChannel) SetIR(context.Context, string, int) error       { return nil }
-func (f *sdcardFakeChannel) GetIR(context.Context, string) (int, error)     { return 0, nil }
-func (f *sdcardFakeChannel) SetLED(context.Context, string, bool) error     { return nil }
-func (f *sdcardFakeChannel) GetLED(context.Context, string) (bool, error)   { return false, nil }
-func (f *sdcardFakeChannel) SetLight(context.Context, string, bool) error   { return nil }
+func (f *sdcardFakeChannel) SetIR(context.Context, string, int) error        { return nil }
+func (f *sdcardFakeChannel) GetIR(context.Context, string) (int, error)      { return 0, nil }
+func (f *sdcardFakeChannel) SetLED(context.Context, string, bool) error      { return nil }
+func (f *sdcardFakeChannel) GetLED(context.Context, string) (bool, error)    { return false, nil }
+func (f *sdcardFakeChannel) SetLight(context.Context, string, bool) error    { return nil }
 func (f *sdcardFakeChannel) ArmTalk(context.Context, string, bool, string) error {
 	return nil
 }

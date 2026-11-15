@@ -524,10 +524,9 @@ type cmdQuery struct {
 // QueryCommand sends method with data and returns the correlated reply's Data
 // as the camera sent it. A reply counts only on this camera's current
 // connection and with the message id of this request. Its method must be the
-// sent one or the vendor's "response." form of it: "atr.get" answers as
-// "atr.get" (as QueryAttributes relies on), while a "service." method answers
-// as "response."+its name (WebSocketApi.java:83,89). The message stays
-// available to OnMsg.
+// sent one or what the vendor uses to answer it: a read asked with "atr.get"
+// comes back as "atr.post", and a "service." method as "response."+its name
+// (WebSocketApi.java:83,89). The message stays available to OnMsg.
 func (s *Signaling) QueryCommand(ctx context.Context, camera, method string, data any) (any, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -561,11 +560,23 @@ func (s *Signaling) QueryCommand(ctx context.Context, camera, method string, dat
 	}
 }
 
+// replyMethod is the method a reply to this request carries: a service command
+// is answered as response.<name> (WebSocketApi.java:83,89 in the Osaio app).
 func replyMethod(method string) string {
 	if suffix, ok := strings.CutPrefix(method, "service."); ok {
 		return "response." + suffix
 	}
 	return method
+}
+
+// repliesTo reports whether got answers a request sent as sent: the same method,
+// the vendor's response form, or atr.post for an atr.get, which is how the
+// camera answers a read.
+func repliesTo(sent, got string) bool {
+	if got == sent || got == replyMethod(sent) {
+		return true
+	}
+	return sent == "atr.get" && got == "atr.post"
 }
 
 // answerCmdLocked completes the pending command query this message answers.
@@ -575,7 +586,7 @@ func (s *Signaling) answerCmdLocked(conn *websocket.Conn, m wsMsg) {
 	if q == nil || q.conn != conn || conn != s.conn || m.UUID != q.camera {
 		return
 	}
-	if m.Method != q.method && m.Method != replyMethod(q.method) {
+	if !repliesTo(q.method, m.Method) {
 		return
 	}
 	select {

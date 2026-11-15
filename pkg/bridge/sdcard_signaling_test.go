@@ -89,6 +89,38 @@ func TestRecordDaysResolvesOnCorrelatedReply(t *testing.T) {
 	}
 }
 
+// The camera answers an atr.get read with atr.post, as it does on the real
+// WS03 firmware.
+func TestSDCardInfoResolvesOnAtrPostReply(t *testing.T) {
+	ts := newWSTestServer(t, func(c *websocket.Conn) {
+		for {
+			var m wsMsg
+			if c.ReadJSON(&m) != nil {
+				return
+			}
+			if m.Method != "atr.get" {
+				continue
+			}
+			m.Method = "atr.post"
+			m.Data = map[string]any{"SdCardInfo": map[string]any{
+				"Status": 0.0, "TotalSizeK": 31251968.0, "UsedSizeK": 11638464.0,
+			}}
+			if c.WriteJSON(m) != nil {
+				return
+			}
+		}
+	})
+	cc := NewSignalingControlChannel(sdCardSignaling(t, ts))
+	body, err := cc.GetSDCardInfo(context.Background(), "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, _ := body["SdCardInfo"].(map[string]any)
+	if info["TotalSizeK"] != 31251968.0 || info["UsedSizeK"] != 11638464.0 {
+		t.Fatalf("reply = %v", body)
+	}
+}
+
 // A reply with another message id, for another camera or under another method
 // must not resolve the query.
 func TestSDCardQueryRejectsUncorrelatedReply(t *testing.T) {
