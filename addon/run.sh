@@ -3,63 +3,65 @@
 # host's network namespace, then keeps both alive until the add-on stops.
 #
 # Options come from /data/options.json, which the Supervisor writes on every
-# start and every time the user saves the add-on configuration.
+# start and every time the user saves the add-on configuration. It is a flat
+# JSON object of strings, numbers and booleans; the base image has no jq and
+# no python3, so the option is read out of the text with a pattern.
+
 set -euo pipefail
 
 OPTIONS=/data/options.json
 
-# option NAME DEFAULT -> prints the option's value, or DEFAULT when the key is
-# missing or empty. jq is not part of the base image, so this uses python3.
-option() {
-    python3 - "$OPTIONS" "$1" "$2" <<'PY'
-import json, sys
-path, name, default = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    with open(path, encoding="utf-8") as fh:
-        value = json.load(fh).get(name)
-except FileNotFoundError:
-    value = None
-if value is None:
-    value = ""
-if isinstance(value, bool):
-    value = "true" if value else "false"
-value = str(value)
-print(value if value != "" else default)
-PY
+# json_option NAME DEFAULT -> prints the top-level value of NAME, or DEFAULT
+# when the key is missing or empty. An option never contains a quote, so the
+# value is either quoted or runs to the next comma or closing brace.
+json_option() {
+    local name="$1" fallback="$2" match value
+    if [ -r "$OPTIONS" ]; then
+        match="$(tr -d '\n' < "$OPTIONS" \
+            | sed -n "s/.*\"${name}\"[[:space:]]*:[[:space:]]*\(\"[^\"]*\"\|[^,}]*\).*/\1/p")"
+        value="${match#\"}"
+        value="${value%\"}"
+        if [ -n "$value" ]; then
+            printf '%s\n' "$value"
+            return
+        fi
+    fi
+    printf '%s\n' "$fallback"
 }
 
-opt_bool() {
-    case "$(option "$1" "$2")" in
+json_bool() {
+    case "$(json_option "$1" "$2")" in
         true|True|TRUE|1|yes|on) echo 1 ;;
         *) echo 0 ;;
     esac
 }
 
-ADMIN_NAME="$(option admin_name admin)"
-ADMIN_PASSWORD="$(option admin_password "")"
-OSAIO_EMAIL="$(option osaio_email "")"
-OSAIO_PASSWORD="$(option osaio_password "")"
-OSAIO_COUNTRY="$(option osaio_country "")"
-OSAIO_ENROLLED="$(option osaio_enrolled "")"
-CAMERA_IP="$(option camera_ip "")"
-CAMERA_SUBNET="$(option camera_subnet "")"
-HTTP_BIND="$(option http_bind 0.0.0.0)"
-HTTP_PORT="$(option http_port 8654)"
-CONTROL_TRANSPORT="$(option control_transport cloud)"
-MQTT_URL="$(option mqtt_url tcp://127.0.0.1:1883)"
-STRICT_MANUAL="$(option strict_manual false)"
-VIDEO_ONLY_DEVICES="$(option video_only_devices "")"
-TIMEZONE="$(option timezone "")"
-TIMEZONE_OFFSET="$(option timezone_offset "")"
-RETENTION_DAYS="$(option recording_retention_days 0)"
+ADMIN_NAME="$(json_option admin_name admin)"
+ADMIN_PASSWORD="$(json_option admin_password "")"
+OSAIO_EMAIL="$(json_option osaio_email "")"
+OSAIO_PASSWORD="$(json_option osaio_password "")"
+OSAIO_COUNTRY="$(json_option osaio_country "")"
+OSAIO_ENROLLED="$(json_option osaio_enrolled "")"
+CAMERA_IP="$(json_option camera_ip "")"
+CAMERA_SUBNET="$(json_option camera_subnet "")"
+HTTP_BIND="$(json_option http_bind 0.0.0.0)"
+HTTP_PORT="$(json_option http_port 8654)"
+CONTROL_TRANSPORT="$(json_option control_transport cloud)"
+MQTT_URL="$(json_option mqtt_url tcp://127.0.0.1:1883)"
+STRICT_MANUAL="$(json_option strict_manual false)"
+VIDEO_ONLY_DEVICES="$(json_option video_only_devices "")"
+TIMEZONE="$(json_option timezone "")"
+TIMEZONE_OFFSET="$(json_option timezone_offset "")"
+RETENTION_DAYS="$(json_option recording_retention_days 0)"
 
 CONFIG=/opt/bombecam/mediamtx.yml
-if [ "$(opt_bool recording_enabled true)" = "1" ]; then
+if [ "$(json_bool recording_enabled true)" = "1" ]; then
     CONFIG=/opt/bombecam/mediamtx.recording.yml
 fi
 
 # MediaMTX writes its recordings here; the gateway serves them from the same
-# folder (BOMBECAM_RECORDINGS_DIR) as the per-camera latest recording.
+# folder (BOMBECAM_RECORDINGS_DIR) as the per-camera latest recording. The
+# profile, the operator tokens and any saved keys live in /var/lib/bombecam.
 mkdir -p /recordings /var/lib/bombecam
 
 echo "[addon] MediaMTX starting with $(basename "$CONFIG")"
@@ -81,15 +83,19 @@ export BOMBECAM_MEDIAMTX_API=http://127.0.0.1:9997
 export BOMBECAM_RTSP_PUBLISH_BASE=rtsp://127.0.0.1:8554
 export OSAIO_HLS_BASE=http://127.0.0.1:8888
 export BOMBECAM_WEBRTC_BASE=http://127.0.0.1:8889
-export CONTROL_TRANSPORT MOSQUITTO_URL
+export CONTROL_TRANSPORT="$CONTROL_TRANSPORT"
 export MOSQUITTO_URL="$MQTT_URL"
-export STRICT_MANUAL
+export STRICT_MANUAL="$STRICT_MANUAL"
 export BOMBECAM_VIDEO_ONLY_DEVICES="$VIDEO_ONLY_DEVICES"
 export OSAIO_TIMEZONE="$TIMEZONE"
 export OSAIO_ZONE_OFFSET="$TIMEZONE_OFFSET"
 export FFMPEG_PATH=/usr/bin/ffmpeg
 export BOMBECAM_RECORDINGS_DIR=/recordings
 export BOMBECAM_RECORDINGS_RETENTION_DAYS="$RETENTION_DAYS"
+# Everything the gateway remembers between restarts, inside the add-on's
+# persistent /data folder instead of the home directory.
+export BOMBECAM_PROFILE_PATH=/data/bombecam/profile.enc
+export BOMBECAM_PROFILE_KEY_FILE=/data/bombecam/profile.key
 
 echo "[addon] gateway starting on ${OSAIO_HTTP}"
 /usr/local/bin/bombecam-gateway &

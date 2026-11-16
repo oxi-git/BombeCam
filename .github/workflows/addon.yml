@@ -1,13 +1,16 @@
 name: Build and publish the add-on
 
-# The add-on image is the gateway plus MediaMTX, on a base Home Assistant can
-# run on every architecture it supports. The gateway binary is built from
-# source, so this workflow needs no release downloads; the Osaio server key
-# and app ID come from the same secrets release.yml uses.
+# The add-on image is the gateway plus MediaMTX on an Alpine base, with the
+# gateway built from source, so this workflow needs no release downloads. The
+# Osaio server key and app ID come from the same repository secrets release.yml
+# uses.
 #
-# Builds of the same tag merge into one image index: each platform pushes its
-# own manifest, and the tag ends up multi-architecture without holding all
-# three images on one runner.
+# Images are built in two steps:
+#   1. assemble: the repository without the heavy folders, addon/ in place;
+#   2. build one image per architecture on the matching runner, so arm64 is
+#      built natively instead of through QEMU.
+# Each build pushes its own manifest to ghcr, so the :dev tag is a multi-arch
+# index whose entries arrive as the runners finish.
 
 "on":
   push:
@@ -22,7 +25,6 @@ name: Build and publish the add-on
       - 'go.sum'
       - 'deploy/mediamtx.yml'
       - 'deploy/mediamtx.recording.yml'
-      - 'deploy/Dockerfile.gateway'
       - '.github/workflows/addon.yml'
   pull_request:
     paths:
@@ -47,20 +49,48 @@ jobs:
       - name: Validate the add-on files
         run: python3 addon/validate.py
 
-  build:
+  assemble:
     runs-on: ubuntu-latest
     needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect the add-on into a clean context
+        run: |
+          set -euo pipefail
+          # Only the folders the gateway build reads, plus the add-on files at
+          # the top: addon/Dockerfile names run.sh and the MediaMTX configs
+          # without a folder, the same way Home Assistant's add-on builder
+          # sees its context.
+          mkdir -p /tmp/context
+          cp -R cmd internal pkg tools web go.mod go.sum LICENSE /tmp/context/
+          cp addon/Dockerfile addon/run.sh addon/mediamtx.yml \
+             addon/mediamtx.recording.yml /tmp/context/
+          if [ -f osaio-setup.txt ]; then cp osaio-setup.txt /tmp/context/; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: addon-context
+          path: /tmp/context
+          retention-days: 1
+
+  build:
+    runs-on: ${{ matrix.runs_on }}
+    needs: assemble
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: linux/amd64
+            runs_on: ubuntu-latest
           - platform: linux/arm64
+            runs_on: ubuntu-24.04-arm
           - platform: linux/arm/v7
+            runs_on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: addon-context
+          path: context
 
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       # Forks on pull requests get a read-only token: build, do not push.
@@ -97,13 +127,13 @@ jobs:
           docker buildx build \
             ${push} \
             --platform "${PLATFORM}" \
-            --file addon/Dockerfile \
+            --file context/Dockerfile \
             --build-arg "BOMBECAM_SERVER_KEY=${BOMBECAM_SERVER_KEY}" \
             --build-arg "BOMBECAM_APP_ID=${BOMBECAM_APP_ID}" \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.version=${tag}" \
             --tag "${image}:${tag}" \
-            .
+            context
           echo "built ${image}:${tag} for ${PLATFORM}"
 
   # A release tags the image with its version, its major number and latest,
@@ -133,7 +163,6 @@ jobs:
           image="ghcr.io/${OWNER,,}/bombecam-addon"
           ver="${TAG#v}"
           docker buildx imagetools create \
-            --tag "${image}:${ver}" \
             --tag "${image}:${ver%%.*}" \
             --tag "${image}:latest" \
             "${image}:${ver}"

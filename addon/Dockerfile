@@ -1,5 +1,13 @@
-# ==============================================================================
-# BombeCam - Home Assistant add-on.
+# BombeCam add-on image (gateway + MediaMTX).
+#
+# One file for both builders:
+#   - Home Assistant's add-on builder copies this addon/ folder into the
+#     context and runs this Dockerfile from its root, so run.sh and the
+#     MediaMTX configs sit next to it;
+#   - .github/workflows/addon.yml builds from the top of the repository and
+#     copies the same three files next to the sources;
+# either way they end up in the root of the context it builds. That is why the
+# COPY lines at the bottom name them without a folder.
 #
 # One image holds both processes the gateway expects to find on localhost:
 # MediaMTX (RTSP/HLS/WebRTC) and the BombeCam gateway that publishes the
@@ -7,29 +15,21 @@
 # talks to MediaMTX on 127.0.0.1 and cameras push WebRTC over random UDP
 # ports, so `host_network: true` in config.yaml is not optional.
 #
-# The add-on builder copies addon/ into the build context, so run.sh and the
-# MediaMTX configs are at the top of it. .github/workflows/addon.yml builds
-# the same image from the top of the repository: addon/ is copied there too
-# (see the "Prepare the add-on context" step), so both paths build one file.
-#
 # Set BOMBECAM_BASE to a build image with the toolchain for other platforms;
 # this is what Home Assistant's add-on builder does when it cross-builds.
 # ==============================================================================
 
 ARG BOMBECAM_BASE=alpine:3.22
 
-# MediaMTX v1.9.3, the same release deploy/mediamtx.yml is pinned to. Only the
-# binary is taken from it: the add-on runs its own config.
 FROM --platform=$BUILDPLATFORM bluenviron/mediamtx:1.9.3 AS mediamtx
 
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gateway
 ARG TARGETOS
 ARG TARGETARCH
 ARG TARGETVARIANT
-# Osaio server key and app ID, handed over as build arguments by CI and the
-# add-on builder and visible in the image history: the published image has
-# them built in anyway. Leave them empty to use osaio-setup.txt at the top of
-# the tree, or to make an image whose gateway asks for them on its own page.
+# Baked in the way deploy/Dockerfile.gateway does it: tools/setup reads these
+# from the environment and prints the linker flags. Without them the build
+# asks for the Osaio server key on the web page instead.
 ARG BOMBECAM_SERVER_KEY=""
 ARG BOMBECAM_APP_ID=""
 ENV BOMBECAM_SERVER_KEY="${BOMBECAM_SERVER_KEY}" \
@@ -38,8 +38,6 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-# tools/setup reads the two environment variables above or osaio-setup.txt and
-# prints the linker flags the build embeds.
 RUN keyflag="$(go run ./tools/setup -ldflags)" && \
     CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" GOARM="${TARGETVARIANT#v}" \
     go build -buildvcs=false -trimpath -ldflags="-s -w ${keyflag}" \
@@ -51,7 +49,9 @@ LABEL \
     org.opencontainers.image.description="BombeCam gateway add-on (gateway + MediaMTX)" \
     org.opencontainers.image.vendor="BombeCam" \
     org.opencontainers.image.licenses="MIT"
-RUN apk add --no-cache ffmpeg ca-certificates tzdata \
+# bash runs run.sh; ffmpeg gives the gateway its publisher and audio for the
+# browser view, so the same set the compose image installs.
+RUN apk add --no-cache bash ffmpeg ca-certificates tzdata \
     && mkdir -p /opt/bombecam /recordings /var/lib/bombecam
 COPY --from=mediamtx /mediamtx /usr/local/bin/mediamtx
 COPY --from=gateway /out/bombecam-gateway /usr/local/bin/bombecam-gateway
