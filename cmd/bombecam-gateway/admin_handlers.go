@@ -59,39 +59,6 @@ func requestSignedIn(r *http.Request) bool {
 	return false
 }
 
-// publicAPIPaths need no sign-in: the page uses them to sign in.
-var publicAPIPaths = map[string]bool{
-	"/api/v1/auth/csrf":      true,
-	"/api/v1/operator/csrf":  true,
-	"/api/v1/operator/token": true, // checks the administrator itself
-	"/api/v1/admin/status":   true,
-	"/api/v1/admin/setup":    true, // this PC only, and only before an administrator exists
-	"/api/v1/admin/signin":   true,
-	"/api/v1/admin/signout":  true,
-	// this PC only (checked in the handler): the way back after a forgotten password
-	"/api/v1/admin/start-over": true,
-}
-
-// isStaticAsset: the page's own files carry no data and load before sign-in.
-func isStaticAsset(r *http.Request) bool {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		return false
-	}
-	p := r.URL.Path
-	if strings.HasPrefix(p, "/api/") {
-		return false
-	}
-	if p == "/" {
-		return true
-	}
-	for _, ext := range []string{".html", ".js", ".css", ".ico", ".png", ".svg"} {
-		if strings.HasSuffix(p, ext) {
-			return true
-		}
-	}
-	return false
-}
-
 type adminRequest struct {
 	Name               string  `json:"name"`
 	Password           string  `json:"password"`

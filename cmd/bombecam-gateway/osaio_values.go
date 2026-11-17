@@ -211,9 +211,6 @@ func (v *osaioValue) handle(w http.ResponseWriter, r *http.Request, sm *SessionM
 		http.Error(w, "GET, POST or DELETE required", http.StatusMethodNotAllowed)
 		return
 	}
-	if !validateOperatorRequest(w, r, stm) {
-		return
-	}
 	if store == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": v.code + "_unavailable", "message": "BombeCam is still starting; try again in a moment."})
 		return

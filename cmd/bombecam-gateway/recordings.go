@@ -192,9 +192,6 @@ func sizeOf(path string) int64 {
 // handleRecordings serves GET /api/v1/recordings: the list of recorded
 // segments, or an explanation when recording is off.
 func handleRecordings(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
@@ -218,9 +215,6 @@ func handleRecordings(w http.ResponseWriter, r *http.Request, streamMgr *StreamM
 // one recorded segment. The path is validated to stay inside the recording
 // directory, so the page can only read files BombeCam actually recorded.
 func handleRecordingDownload(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return

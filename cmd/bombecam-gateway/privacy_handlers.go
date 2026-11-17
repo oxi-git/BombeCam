@@ -1009,13 +1009,6 @@ func privacyGuard(w http.ResponseWriter, r *http.Request, streamMgr *StreamManag
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return nil, false
 	}
-	if om := GatewayOperatorManager(); om != nil {
-		// See signInRequired: other devices (and this PC, if the administrator
-		// chose so) need a signed-in session or API token.
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
-			return nil, false
-		}
-	}
 	pm := streamMgr.ProfileManager()
 	if pm == nil || pm.GetProfile() == nil {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "not_configured", "message": "Sign in and connect your cameras first."})
@@ -1032,15 +1025,6 @@ func isLoopbackRequest(r *http.Request) bool {
 	}
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	return ip != nil && ip.IsLoopback()
-}
-
-// validateOperatorRequest lets a request through when it needs no sign-in
-// (this PC, unless the administrator asked for sign-in here too) or comes
-// from a signed-in administrator. A visitor cookie and CSRF token only
-// establish a browser boundary, not permission to operate the gateway.
-func validateOperatorRequest(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) bool {
-	om := GatewayOperatorManager()
-	return om == nil || om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr))
 }
 
 // changeTimeout bounds a router update made on behalf of a click.

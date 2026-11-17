@@ -330,9 +330,6 @@ func buildIntegrationSettingsView(sm *StreamManager, r *http.Request, pm profile
 }
 
 func handleIntegrationSettings(w http.ResponseWriter, r *http.Request, sm *StreamManager) {
-	if !validateOperatorRequest(w, r, sm) {
-		return
-	}
 
 	switch r.Method {
 	case http.MethodGet:

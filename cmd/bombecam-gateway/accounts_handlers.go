@@ -63,9 +63,6 @@ func accountStatus(sm *SessionManager, found, hasPassword bool) (string, string)
 
 // handleAccountsList handles GET /api/v1/accounts.
 func handleAccountsList(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
@@ -183,9 +180,6 @@ func handleAccountSignIn(w http.ResponseWriter, r *http.Request, sessionMgr *Ses
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 	var req accountRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request", "message": "Send the login's email and password."})
@@ -238,9 +232,6 @@ func handleAccountCameras(w http.ResponseWriter, r *http.Request, streamMgr *Str
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 	var req accountRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
@@ -289,9 +280,6 @@ func handleAccountCameras(w http.ResponseWriter, r *http.Request, streamMgr *Str
 func handleAccountRemove(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
-		return
-	}
-	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 	var req accountRequest

@@ -32,7 +32,7 @@ func handleGatewayShutdown(w http.ResponseWriter, r *http.Request, streamMgr *St
 		return
 	}
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, currentStreamManager())) {
 			return
 		}
 	}

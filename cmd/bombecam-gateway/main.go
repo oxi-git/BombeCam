@@ -280,22 +280,27 @@ func claimControlPort(addr string, headless bool) net.Listener {
 	return nil
 }
 
-// SecurityBoundaryHandler validates Host headers against DNS rebinding,
-// enforces Origin and CSRF boundaries on state-mutating requests, and asks
-// for the administrator's sign-in wherever signInRequired says so. The page's
-// own files and the sign-in endpoints stay reachable so the page can sign in.
+// SecurityBoundaryHandler enforces each route's own auth level: the Host check
+// against DNS rebinding, Origin and CSRF on state-changing requests, and a
+// sign-in wherever the route asks for one or the gateway demands one on this
+// PC. Routes name their level when they are registered; nothing here needs the
+// process-wide stream manager.
 func SecurityBoundaryHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		level := levelFor(r)
 		om := GatewayOperatorManager()
 		if om != nil {
-			isCSRFEndpoint := r.URL.Path == "/api/v1/auth/csrf" || r.URL.Path == "/api/v1/operator/csrf"
-			switch {
-			case isCSRFEndpoint || isStaticAsset(r):
+			switch level {
+			case authHostOnly:
 				if om.RejectForbiddenHost(w, r) {
 					return
 				}
-			case publicAPIPaths[r.URL.Path]:
+			case authHostOrigin:
 				if !om.ValidateSecurityBoundary(w, r, false) {
+					return
+				}
+			case authOperatorOnly:
+				if !om.ValidateSecurityBoundary(w, r, true) {
 					return
 				}
 			default:

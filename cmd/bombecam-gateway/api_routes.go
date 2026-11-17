@@ -397,9 +397,6 @@ func registerRecordingRoutes(mux *http.ServeMux, streamMgr *StreamManager) {
 // A path that matches no route falls through to http.NotFound.
 func registerCameraRoutes(mux *http.ServeMux, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	mux.HandleFunc("/api/v1/cameras/", func(w http.ResponseWriter, r *http.Request) {
-		if !validateOperatorRequest(w, r, streamMgr) {
-			return
-		}
 		relPath := strings.TrimPrefix(r.URL.Path, "/api/v1/cameras/")
 		parts := strings.Split(relPath, "/")
 		if len(parts) == 0 || parts[0] == "" {
@@ -538,15 +535,15 @@ func registerLegacyRoutes(mux *http.ServeMux, streamMgr *StreamManager) {
 	mux.HandleFunc("/ir", func(w http.ResponseWriter, r *http.Request) {
 		handleLegacyIR(w, r, streamMgr)
 	})
-	mux.HandleFunc("/ir/status", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/ir/status", gated(authOperatorOnly, func(w http.ResponseWriter, r *http.Request) {
 		handleLegacyIRStatus(w, r, streamMgr)
-	})
+	}))
 	mux.HandleFunc("/led", func(w http.ResponseWriter, r *http.Request) {
 		handleLegacyLED(w, r, streamMgr)
 	})
-	mux.HandleFunc("/led/status", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/led/status", gated(authOperatorOnly, func(w http.ResponseWriter, r *http.Request) {
 		handleLegacyLEDStatus(w, r, streamMgr)
-	})
+	}))
 	mux.HandleFunc("/light", func(w http.ResponseWriter, r *http.Request) {
 		handleLegacyLight(w, r, streamMgr)
 	})
@@ -567,21 +564,13 @@ func registerLegacyRoutes(mux *http.ServeMux, streamMgr *StreamManager) {
 	})
 }
 
-// allowLegacyPost enforces POST and the operator security boundary for a
-// legacy route, reporting whether the handler should continue.
-//
-// These routes authenticate with the visitor session alone (strict false), so a
-// LAN client that holds a session cookie can use them without an operator
-// token; the boundary still checks Host, Origin and credentials.
-func allowLegacyPost(w http.ResponseWriter, r *http.Request, signIn bool) bool {
+// allowLegacyPost requires POST on a legacy route, reporting whether the
+// handler should continue. Who may call it is the route's auth level, which
+// the middleware has already enforced by the time this runs.
+func allowLegacyPost(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return false
-	}
-	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signIn) {
-			return false
-		}
 	}
 	return true
 }
@@ -617,7 +606,7 @@ func handleLegacyStatus(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 }
 
 func handleLegacyUnlock(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, true) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	sess := cameraSessionByName(streamMgr, r.URL.Query().Get("cam"))
@@ -642,7 +631,7 @@ func handleLegacyUnlock(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 // handleLegacyMode sets strict-manual recovery for one camera, or for every
 // camera when ?cam= names none of them.
 func handleLegacyMode(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, true) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	cam := r.URL.Query().Get("cam")
@@ -692,7 +681,7 @@ func ptzDirection(s string) (int, bool) {
 }
 
 func handleLegacyPTZ(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	dir, ok := ptzDirection(r.URL.Query().Get("dir"))
@@ -724,7 +713,7 @@ func handleLegacyPTZ(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 }
 
 func handleLegacyIR(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	irMode, okMode := bridge.ParseIRMode(r.URL.Query().Get("mode"))
@@ -751,9 +740,6 @@ func handleLegacyIR(w http.ResponseWriter, r *http.Request, streamMgr *StreamMan
 }
 
 func handleLegacyIRStatus(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if om := GatewayOperatorManager(); om != nil && !om.ValidateSecurityBoundary(w, r, true) {
-		return
-	}
 	uuid, name, cc, ok := legacyControlTarget(w, r.URL.Query().Get("cam"), streamMgr)
 	if !ok {
 		return
@@ -787,7 +773,7 @@ func legacyOnOff(s string) (int, bool) {
 }
 
 func handleLegacyLED(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	val, ok := legacyOnOff(r.URL.Query().Get("mode"))
@@ -814,9 +800,6 @@ func handleLegacyLED(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 }
 
 func handleLegacyLEDStatus(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if om := GatewayOperatorManager(); om != nil && !om.ValidateSecurityBoundary(w, r, true) {
-		return
-	}
 	uuid, name, cc, ok := legacyControlTarget(w, r.URL.Query().Get("cam"), streamMgr)
 	if !ok {
 		return
@@ -849,7 +832,7 @@ func onOffName(val int) string {
 }
 
 func handleLegacyLight(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	val, ok := legacyOnOff(r.URL.Query().Get("mode"))
@@ -877,7 +860,7 @@ func handleLegacyLight(w http.ResponseWriter, r *http.Request, streamMgr *Stream
 
 // handleLegacyMic sets the camera's AudioRecordSw attribute.
 func handleLegacyMic(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, true) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	target := findSignaling(r.URL.Query().Get("cam"))
@@ -913,7 +896,7 @@ func handleLegacyMic(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 // route that bypasses ControlChannel, on purpose: its input is already a vendor
 // method name and payload.
 func handleLegacyCommand(w http.ResponseWriter, r *http.Request) {
-	if !allowLegacyPost(w, r, true) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	method := r.URL.Query().Get("method")
@@ -963,7 +946,7 @@ func handleLegacyCommand(w http.ResponseWriter, r *http.Request) {
 // viewer it arms the control channel instead, which is all a firewall backend
 // can do.
 func handleLegacyTalkStart(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	cam := r.URL.Query().Get("cam")
@@ -987,7 +970,7 @@ func handleLegacyTalkStart(w http.ResponseWriter, r *http.Request, streamMgr *St
 }
 
 func handleLegacyTalkStop(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	cam := r.URL.Query().Get("cam")
@@ -1035,7 +1018,7 @@ func answerArmTalk(w http.ResponseWriter, r *http.Request, cam string, active bo
 }
 
 func handleLegacyTalkStream(w http.ResponseWriter, r *http.Request) {
-	if !allowLegacyPost(w, r, true) {
+	if !allowLegacyPost(w, r) {
 		return
 	}
 	target := findSignaling(r.URL.Query().Get("cam"))

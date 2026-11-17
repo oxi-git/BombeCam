@@ -186,12 +186,6 @@ func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *S
 		return
 	}
 
-	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
-			return
-		}
-	}
-
 	var req OnboardingSetupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json payload"})
@@ -380,12 +374,6 @@ func handleOnboardingReset(w http.ResponseWriter, r *http.Request, sessionMgr *S
 		return
 	}
 
-	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
-			return
-		}
-	}
-
 	pm := streamMgr.ProfileManager()
 	writeJSON(w, http.StatusOK, resetStoredInformation(r.Context(), sessionMgr, streamMgr, pm, true))
 }
@@ -468,9 +456,6 @@ func resetStoredInformation(ctx context.Context, sessionMgr *SessionManager, str
 
 // handleCameraDiscover handles GET /api/v1/onboarding/cameras/discover and GET /api/v1/inventory/discover.
 func handleCameraDiscover(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
@@ -552,12 +537,6 @@ func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *Sess
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
-	}
-
-	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
-			return
-		}
 	}
 
 	var req struct {
@@ -784,9 +763,6 @@ func handleDedicatedPTZ(w http.ResponseWriter, r *http.Request, camID string, st
 
 // handleCameraStream handles GET /api/v1/cameras/{id}/stream.
 func handleCameraStream(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
@@ -893,11 +869,6 @@ func handleGatewayStart(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
-			return
-		}
-	}
 	started := streamMgr.StartStreaming()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
@@ -907,19 +878,13 @@ func handleGatewayStart(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 }
 
 // handleGatewayStop handles POST /api/v1/gateway/stop.
-// Protected by ValidateSecurityBoundary(w, r, true).
+// The route asks for authOperatorOnly, so the middleware has already checked it.
 // Calls StreamManager.StopStreaming() to stop active MediaMTX RTSP streams and camera control polling.
 // Does not change the router's "Block cloud video" rules.
 func handleGatewayStop(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
-	}
-
-	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
-			return
-		}
 	}
 
 	streamMgr.StopStreaming()

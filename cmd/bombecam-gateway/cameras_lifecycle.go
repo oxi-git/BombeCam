@@ -47,11 +47,6 @@ func handleCameraSearch(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
-			return
-		}
-	}
 	var req cameraSearchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json payload"})
@@ -131,11 +126,6 @@ func handleCameraAdd(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
-	}
-	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
-			return
-		}
 	}
 	var req cameraSearchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

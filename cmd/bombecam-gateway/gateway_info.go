@@ -75,11 +75,6 @@ func handleAutostart(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 		http.Error(w, "GET or POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
-			return
-		}
-	}
 	if !autostartSupported() || gatewayHeadless.Load() {
 		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": errAutostartUnsupported.Error()})
 		return

@@ -405,9 +405,6 @@ func (sm *StreamManager) portMappings(r *http.Request) globalPortMappings {
 // handleFrigateIntegration handles GET /api/v1/integrations/frigate
 // (?format=yaml, ?variant=new, ?roles=detect,record, ?camera=<id|name>).
 func handleFrigateIntegration(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
@@ -551,9 +548,6 @@ func haSetupSteps(c integrationCamera, g haGenericCamera) string {
 // Home Assistant deprecated YAML setup of Generic Camera, so this returns the
 // values for its UI (and ?format=text the step-by-step text).
 func handleHomeAssistantIntegration(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
@@ -657,9 +651,6 @@ type streamsIntegrationResponse struct {
 
 // handleStreamsIntegration handles GET /api/v1/integrations/streams
 func handleStreamsIntegration(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !validateOperatorRequest(w, r, streamMgr) {
-		return
-	}
 
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
