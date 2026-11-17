@@ -348,13 +348,6 @@ paths:
 	return rendered
 }
 
-// MinimalMediaMTXConfig generates the default configuration with the given ports.
-func MinimalMediaMTXConfig(rtspPort, hlsPort, apiPort int) string {
-	cfg := DefaultConfig()
-	cfg.RTSPPort, cfg.HTTPPort, cfg.APIPort = rtspPort, hlsPort, apiPort
-	return GenerateConfig(cfg)
-}
-
 // The recording contract, written into the generated config and read back by
 // whoever lists or serves the segments. MediaMTX fills SegmentPathPattern's
 // placeholders; RecordExt is the extension those placeholders produce for

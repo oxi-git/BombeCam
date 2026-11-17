@@ -326,11 +326,6 @@ func handleCameraShadow(w http.ResponseWriter, r *http.Request, camID string, st
 	writeJSON(w, http.StatusOK, map[string]any{"state": map[string]any{"reported": reported}, "timestamp": ts, "readback_error": readbackError})
 }
 
-// The SD card is read on the control channel (atr.get SdCardInfo / RecordDays);
-// see docs/technical/SDCARD_P2P_PLAN.md. When the active channel cannot answer,
-// saying so beats a call that can only fail.
-const sdCardUnavailable = "The camera did not answer over the control channel. SD card state and the days it holds need a live camera connection."
-
 // sdcardFetcher is the optional capability of a control channel that can query
 // the camera's SD card. Like GetAttributes, it stays off bridge.ControlChannel.
 type sdcardFetcher interface {

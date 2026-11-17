@@ -131,13 +131,6 @@ func (sm *StateMachine) getLastReportedState(thingName string) map[string]any {
 	return lastReported
 }
 
-// ActiveWaiters returns the number of active waiters for a thing (for metrics and leak tests).
-func (sm *StateMachine) ActiveWaiters(thingName string) int {
-	sm.waitersMu.Lock()
-	defer sm.waitersMu.Unlock()
-	return len(sm.waiters[thingName])
-}
-
 // ApplyUpdate processes an incoming shadow update request, updating desired/reported states,
 // calculating deltas, incrementing versions, and triggering Invariant I4 confirmation checks.
 func (sm *StateMachine) ApplyUpdate(thingName string, req *ShadowUpdateRequest) (*ShadowDocument, *ShadowDeltaMessage, error) {

@@ -84,7 +84,6 @@ func sortLANAddresses(a []LANAddress) {
 
 // addressSource says where an advertised stream address came from.
 const (
-	addrFromOverride = "override"  // BOMBECAM_RTSP_CONSUMER_BASE / -consumer-rtsp-base
 	addrFromChoice   = "chosen"    // picked on the Frigate / Home Assistant page
 	addrFromPage     = "page"      // the address this page was opened with
 	addrFromDefault  = "automatic" // the default-route address

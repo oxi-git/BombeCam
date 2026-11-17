@@ -94,11 +94,10 @@ func ApplyArgs(doc *policy.Document, opts policy.Options) ([]string, error) {
 // forced command is "bombecam-router gate", which reads the verb from
 // SSH_ORIGINAL_COMMAND).
 const (
-	GateApply       = "apply" // stdin: ApplySpec
-	GateStatus      = "status"
-	GateConnections = "connections"
-	GateVersion     = "version"
-	GateUninstall   = "uninstall"
+	GateApply     = "apply" // stdin: ApplySpec
+	GateStatus    = "status"
+	GateVersion   = "version"
+	GateUninstall = "uninstall"
 )
 
 // ApplySpec is the stdin for the gate's "apply": the complete list of cameras

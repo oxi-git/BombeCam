@@ -13,12 +13,8 @@ const (
 	TopicShadowUpdateAccepted = "$aws/things/%s/shadow/update/accepted"
 	TopicShadowUpdateRejected = "$aws/things/%s/shadow/update/rejected"
 	TopicShadowUpdateDelta    = "$aws/things/%s/shadow/update/delta"
-	TopicShadowGet            = "$aws/things/%s/shadow/get"
 	TopicShadowGetAccepted    = "$aws/things/%s/shadow/get/accepted"
 	TopicShadowGetRejected    = "$aws/things/%s/shadow/get/rejected"
-
-	// Wildcard subscription pattern for all things
-	TopicShadowUpdateWildcard = "$aws/things/+/shadow/update"
 )
 
 // FieldMetadata tracks attribute update timestamps.

@@ -36,20 +36,17 @@ func loadServerKeys(dataDir string) *serverkey.Store { return serverKeyValue.loa
 
 func setServerKeys(s *serverkey.Store) { serverKeyValue.set(s) }
 
-// gatewayServerKeys returns the key store (nil before startup).
-func gatewayServerKeys() *serverkey.Store { return serverKeyValue.get() }
-
 // serverKeyStatus is the key's status for the page; it never includes the key.
 func serverKeyStatus() osaiovalue.Status { return serverKeyValue.status() }
-
-// handleServerKey serves /api/v1/server-key (see osaioValue.handle):
-// GET the status, POST {"key": "..."} to use a key, DELETE to go back to the
-// built-in one.
-func handleServerKey(w http.ResponseWriter, r *http.Request, sm *SessionManager, stm *StreamManager) {
-	serverKeyValue.handle(w, r, sm, stm)
-}
 
 // resumeAfterKeyChange reconnects once the key changes (see resumeAfterChange).
 func resumeAfterKeyChange(sm *SessionManager, stm *StreamManager) {
 	resumeAfterChange(serverKeyValue, sm, stm)
+}
+
+// handleServerKey serves /api/v1/server-key (see osaioValue.handle): GET the
+// status, POST {"key": "..."} to use a key, DELETE to go back to the built-in
+// one.
+func handleServerKey(w http.ResponseWriter, r *http.Request, sm *SessionManager, stm *StreamManager) {
+	serverKeyValue.handle(w, r, sm, stm)
 }

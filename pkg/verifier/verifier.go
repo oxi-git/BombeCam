@@ -42,9 +42,6 @@ func ProbeMatrixForRegion(region policy.Region) []NetworkProbe {
 	}
 }
 
-// DefaultProbeMatrix is the fallback matrix for the default region.
-var DefaultProbeMatrix = ProbeMatrixForRegion(policy.DefaultRegion)
-
 // Config configures the runtime verification subsystem
 type Config struct {
 	CameraID         string

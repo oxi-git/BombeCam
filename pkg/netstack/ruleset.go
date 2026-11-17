@@ -328,23 +328,6 @@ func (m *RulesetManager) GetLastHash() string {
 	return m.LastHash
 }
 
-// ValidateSyntax checks the rendered ruleset with `nft -c` without loading it.
-func (m *RulesetManager) ValidateSyntax(block bool) error {
-	ruleset, err := m.Render(block)
-	if err != nil {
-		return err
-	}
-	if _, err := exec.LookPath("nft"); err != nil {
-		return fmt.Errorf("nftables not installed: cannot validate ruleset")
-	}
-	cmd := exec.Command("nft", "-c", "-f", "-")
-	cmd.Stdin = strings.NewReader(ruleset)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("nft syntax check failed: %w (%s)", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
 // PublicResolvers are asked in addition to the system resolver, because the
 // cameras themselves query 8.8.8.8 directly.
 var PublicResolvers = []string{"8.8.8.8:53", "8.8.4.4:53"}

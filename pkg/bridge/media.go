@@ -1089,23 +1089,6 @@ func (v *Viewer) SetAllowedSubnet(cidr string) error {
 	return v.SetAllowedSubnets([]string{cidr})
 }
 
-// GetActiveRemoteCandidate returns the active selected remote ICE candidate from the PeerConnection.
-func (v *Viewer) GetActiveRemoteCandidate() (*webrtc.ICECandidate, error) {
-	if v.pc == nil {
-		return nil, fmt.Errorf("peer connection is nil")
-	}
-	for _, recv := range v.pc.GetReceivers() {
-		if dtls := recv.Transport(); dtls != nil {
-			if ice := dtls.ICETransport(); ice != nil {
-				if pair, err := ice.GetSelectedCandidatePair(); err == nil && pair != nil {
-					return pair.Remote, nil
-				}
-			}
-		}
-	}
-	return nil, fmt.Errorf("no active selected candidate pair")
-}
-
 func (v *Viewer) selectedPair() (*webrtc.ICECandidatePair, error) {
 	if v.pc == nil {
 		return nil, fmt.Errorf("peer connection is nil")

@@ -84,11 +84,6 @@ func (s *CameraSession) Unlock() {
 	}
 }
 
-// WaitUnlock blocks until an unlock signal is received.
-func (s *CameraSession) WaitUnlock() {
-	<-s.unlockCh
-}
-
 // WaitUnlockContext blocks until unlock signal is received or context is cancelled.
 func (s *CameraSession) WaitUnlockContext(ctx context.Context) error {
 	select {
@@ -507,13 +502,6 @@ func (sm *StreamManager) SetConsumerHLSBase(base string) {
 	sm.consumerHLSBase = base
 }
 
-// ConsumerHLSBase returns the configured consumer HLS base URL (or empty if auto-derived).
-func (sm *StreamManager) ConsumerHLSBase() string {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.consumerHLSBase
-}
-
 // SetNVRAddress sets the LAN address advertised to NVRs and Home Assistant
 // ("" = automatic).
 func (sm *StreamManager) SetNVRAddress(ip string) {
@@ -631,17 +619,6 @@ func (sm *StreamManager) StreamName(uuid string) string {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.streamNames[uuid]
-}
-
-// StreamNames returns a copy of the camera ID -> friendly stream path map.
-func (sm *StreamManager) StreamNames() map[string]string {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	cp := make(map[string]string, len(sm.streamNames))
-	for k, v := range sm.streamNames {
-		cp[k] = v
-	}
-	return cp
 }
 
 // streamPath is the path advertised for a camera: its friendly name, or its

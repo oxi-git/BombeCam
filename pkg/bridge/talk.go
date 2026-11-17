@@ -99,16 +99,6 @@ func (v *Viewer) SetTalkFormat(id string) error {
 	return nil
 }
 
-// TalkFormatID returns the talk format in use.
-func (v *Viewer) TalkFormatID() string {
-	v.talkMu.Lock()
-	defer v.talkMu.Unlock()
-	if v.talkFormatID == "" {
-		return DefaultTalkFormatID
-	}
-	return v.talkFormatID
-}
-
 // talkPlan resolves a format against the camera's own audio: the encoder
 // rate, the RTP clock step per packet, the packet's real duration, and the
 // rate the 16 kHz input is relabelled to (0: not needed).
@@ -439,12 +429,6 @@ func readOpusPackets(stdout io.Reader, s *talkSession, f TalkFormat) {
 		default:
 		}
 	}
-}
-
-// writeTalkFrame sends one packet in the default (AAC) format.
-func (v *Viewer) writeTalkFrame(frame []byte, step uint32, marker bool) error {
-	f, _ := TalkFormatByID(DefaultTalkFormatID)
-	return v.writeTalkPacket(f, frame, step, marker)
 }
 
 // skipTalkClock moves the talk RTP clock over a pause, so a new talkspurt's

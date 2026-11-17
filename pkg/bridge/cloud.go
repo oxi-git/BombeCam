@@ -378,25 +378,6 @@ func (c *Cloud) VideoCall(deviceID string) (*VideoCall, error) {
 // id), "uid" and a bind_type. The SD card itself is not here: the app reads
 // it over P2P (YRCXSDK, DP "sdCardState"/FormatInfo), so nothing in the cloud
 // API lists files on the camera's card.
-
-// GetCloudPackInfo asks pack/info for the camera's cloud plan and storage.
-func (c *Cloud) GetCloudPackInfo(deviceID string) (map[string]any, error) {
-	h, err := c.h2()
-	if err != nil {
-		return nil, err
-	}
-	h["BaseUrlName"] = "web_baseurl"
-	j, err := c.do("GET", c.Web+"/v2/pack/info?"+url.Values{"uuid": {deviceID}}.Encode(), h, nil)
-	if err != nil {
-		return nil, err
-	}
-	if code, _ := j["code"].(float64); code != 1000 {
-		return nil, fmt.Errorf("pack/info code=%v msg=%v", j["code"], j["msg"])
-	}
-	data, _ := j["data"].(map[string]any)
-	return data, nil
-}
-
 // CloudRecordingDay is one day that has cloud recordings.
 type CloudRecordingDay struct {
 	Date  string `json:"date"`
