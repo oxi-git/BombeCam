@@ -85,8 +85,7 @@ func handleOnboardingStatus(w http.ResponseWriter, r *http.Request, sessionMgr *
 		"error":                  errStr,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // detectHostCountry returns a validated environment value or known locale region.
@@ -202,9 +201,7 @@ func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *S
 
 	var req OnboardingSetupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid json payload"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json payload"})
 		return
 	}
 
@@ -226,9 +223,7 @@ func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *S
 	req.AccountEmail = strings.TrimSpace(req.AccountEmail)
 	req.Password = strings.TrimSpace(req.Password)
 	if req.AccountEmail == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "account_email is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "account_email is required"})
 		return
 	}
 	if req.Password == "" {
@@ -240,18 +235,14 @@ func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *S
 		if found && !stored.Password.IsEmpty() {
 			req.Password = stored.Password.Expose()
 		} else {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{"error": "password is required"})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "password is required"})
 			return
 		}
 	}
 
 	if pm != nil {
 		if hp, err := pm.HasProfile(r.Context()); err == nil && hp && !req.Force {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]any{"error": "profile already exists; pass force: true to overwrite"})
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "profile already exists; pass force: true to overwrite"})
 			return
 		}
 	}
@@ -335,9 +326,7 @@ func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *S
 	}
 
 	// Respond with sanitized status (strictly zero secrets leaked)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(respMap)
+	writeJSON(w, http.StatusOK, respMap)
 }
 
 // handleOnboardingProfile handles GET /api/v1/onboarding/profile.
@@ -349,23 +338,18 @@ func handleOnboardingProfile(w http.ResponseWriter, r *http.Request, optPM ...pr
 
 	pm := getEffectivePM(optPM...)
 	if pm == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "profile not found: complete first-run setup first"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "profile not found: complete first-run setup first"})
 		return
 	}
 
 	hasProfile, err := pm.HasProfile(r.Context())
 	if err != nil || !hasProfile {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "profile not found: complete first-run setup first"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "profile not found: complete first-run setup first"})
 		return
 	}
 
 	view := pm.GetPublicView()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(view)
+	writeJSON(w, http.StatusOK, view)
 }
 
 // clearAllButAdmin empties the profile except BombeCam's administrator
@@ -502,9 +486,7 @@ func handleCameraDiscover(w http.ResponseWriter, r *http.Request, sessionMgr *Se
 
 	reg := sessionsFor(sessionMgr)
 	if !reg.AnyAuthenticated() {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": "unauthenticated: no Osaio login is signed in",
 		})
 		return
@@ -514,9 +496,7 @@ func handleCameraDiscover(w http.ResponseWriter, r *http.Request, sessionMgr *Se
 	refresh := r.URL.Query().Get("refresh") == "true"
 	devs, owners, ts, err := reg.DeviceList(refresh)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": fmt.Sprintf("discovery failed: %v", err),
 		})
 		return
@@ -568,8 +548,7 @@ func handleCameraDiscover(w http.ResponseWriter, r *http.Request, sessionMgr *Se
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"cameras":      items,
 		"freshness_ts": ts.Format(time.RFC3339),
 	})
@@ -592,18 +571,14 @@ func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *Sess
 		CameraIDs []string `json:"camera_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"error": "invalid json payload",
 		})
 		return
 	}
 
 	if len(req.CameraIDs) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"error": "no camera IDs provided: camera_ids array must not be empty",
 		})
 		return
@@ -629,9 +604,7 @@ func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *Sess
 			}
 		}
 		if !found {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, http.StatusBadRequest, map[string]any{
 				"error": fmt.Sprintf("camera ID '%s' not found in authenticated account inventory", id),
 			})
 			return
@@ -640,9 +613,7 @@ func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *Sess
 
 	enrolled, err := streamMgr.Enroll(req.CameraIDs, cachedDevs)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"error": err.Error(),
 		})
 		return
@@ -694,8 +665,7 @@ func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *Sess
 		syncStreamNames(r.Context(), pm, streamMgr)
 	}
 	kickIntegrations()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"enrolled":       enrolled,
 		"active_streams": streamMgr.ActiveStreamCount(),
 	})
@@ -714,17 +684,13 @@ func handleDedicatedPTZ(w http.ResponseWriter, r *http.Request, camID string, st
 
 	mc, ok := streamMgr.GetCamera(camID)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "camera not found"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
 
 	cc := cameraControl(streamMgr, camID)
 	if cc == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "control transport unavailable"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "control transport unavailable"})
 		return
 	}
 
@@ -733,9 +699,7 @@ func handleDedicatedPTZ(w http.ResponseWriter, r *http.Request, camID string, st
 		DurationMs int `json:"duration_ms"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid json payload"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json payload"})
 		return
 	}
 
@@ -780,9 +744,7 @@ func handleDedicatedPTZ(w http.ResponseWriter, r *http.Request, camID string, st
 	}
 
 	if !valid {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"error": "invalid direction: use 0=stop, 1=left, 2=right, 3=up, 4=down",
 		})
 		return
@@ -816,8 +778,7 @@ func handleDedicatedPTZ(w http.ResponseWriter, r *http.Request, camID string, st
 	camTransport := mc.Transport
 	mc.mu.RUnlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":             true,
 		"camera":         camName,
 		"uuid":           mc.UUID,
@@ -841,9 +802,7 @@ func handleCameraStream(w http.ResponseWriter, r *http.Request, camID string, st
 
 	mc, ok := streamMgr.GetCamera(camID)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": "camera not found"})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
 
@@ -870,8 +829,7 @@ func handleCameraStream(w http.ResponseWriter, r *http.Request, camID string, st
 		state, detail, ready = "stopped", "Cameras are stopped. Press Start cameras under Settings to resume.", false
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"id":        uuid,
 		"name":      name,
 		"streaming": streaming,
@@ -948,8 +906,7 @@ func handleGatewayStart(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 		}
 	}
 	started := streamMgr.StartStreaming()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"status":  "started",
 		"started": started,
@@ -974,8 +931,7 @@ func handleGatewayStop(w http.ResponseWriter, r *http.Request, streamMgr *Stream
 
 	streamMgr.StopStreaming()
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":               true,
 		"status":           "stopped",
 		"streaming":        false,
