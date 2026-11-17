@@ -3245,7 +3245,8 @@ async function loadSDCard() {
       if (list) list.innerHTML = '<div class="text-muted">Could not list cameras.</div>';
       return;
     }
-    const cameras = (await cams.json()).cameras || [];
+    const body = await cams.json();
+    const cameras = body.cameras || body.streams || [];
     if (cameras.length === 0) {
       if (sd) sd.innerHTML = '<div class="text-muted">No cameras added yet.</div>';
       if (list) list.innerHTML = '';
