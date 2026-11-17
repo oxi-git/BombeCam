@@ -468,19 +468,19 @@ func handleCameraRoute(w http.ResponseWriter, r *http.Request, camID string, par
 		handleHLSRelay(w, r, camID, strings.Join(parts[2:], "/"), streamMgr)
 
 	case len(parts) == 2 && parts[1] == "sdcard" && get:
-		handleSDCardInfo(w, r, camID, streamMgr, sessionMgr)
+		handleSDCardInfo(w, r, camID, streamMgr)
 
 	case len(parts) == 3 && parts[1] == "sdcard" && parts[2] == "recordings" && get:
-		handleSDCardRecordings(w, r, camID, streamMgr, sessionMgr)
+		handleSDCardRecordings(w, r, camID, streamMgr)
 
 	case len(parts) == 3 && parts[1] == "cloud" && parts[2] == "days" && get:
-		handleCameraCloudDays(w, r, camID, r.URL.Query().Get("month"), streamMgr, sessionMgr)
+		handleCameraCloudDays(w, r, camID, r.URL.Query().Get("month"), streamMgr)
 
 	case len(parts) == 3 && parts[1] == "cloud" && parts[2] == "playback" && post:
-		handleCameraCloudPlayback(w, r, camID, streamMgr, sessionMgr)
+		handleCameraCloudPlayback(w, r, camID, streamMgr)
 
 	case len(parts) == 3 && parts[1] == "sdcard" && parts[2] == "playback" && post:
-		handleSDCardPlayback(w, r, camID, streamMgr, sessionMgr)
+		handleSDCardPlayback(w, r, camID, streamMgr)
 
 	default:
 		http.NotFound(w, r)

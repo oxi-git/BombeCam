@@ -423,7 +423,7 @@ func sdcardContext(r *http.Request) (context.Context, context.CancelFunc) {
 }
 
 // handleSDCardInfo handles GET /api/v1/cameras/{id}/sdcard
-func handleSDCardInfo(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, sessionMgr *SessionManager) {
+func handleSDCardInfo(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
 	if _, ok := streamMgr.GetCamera(camID); !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
@@ -454,7 +454,7 @@ func handleSDCardInfo(w http.ResponseWriter, r *http.Request, camID string, stre
 }
 
 // handleSDCardRecordings handles GET /api/v1/cameras/{id}/sdcard/recordings
-func handleSDCardRecordings(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, sessionMgr *SessionManager) {
+func handleSDCardRecordings(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
 	if _, ok := streamMgr.GetCamera(camID); !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
@@ -486,14 +486,14 @@ func handleSDCardRecordings(w http.ResponseWriter, r *http.Request, camID string
 }
 
 // handleCameraCloudDays handles GET /api/v1/cameras/{id}/cloud/days?month=YYYY-MM
-func handleCameraCloudDays(w http.ResponseWriter, r *http.Request, camID, month string, streamMgr *StreamManager, sessionMgr *SessionManager) {
+func handleCameraCloudDays(w http.ResponseWriter, r *http.Request, camID, month string, streamMgr *StreamManager) {
 	if _, ok := streamMgr.GetCamera(camID); !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-	cloud := streamMgr.Registry().Template().Cloud()
+	cloud := streamMgr.CameraCloud(camID)
 	if cloud == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "not_signed_in", "message": "Sign in to Osaio first."})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "not_signed_in", "message": "Sign the camera's Osaio login in first."})
 		return
 	}
 	if month == "" {
@@ -509,14 +509,14 @@ func handleCameraCloudDays(w http.ResponseWriter, r *http.Request, camID, month 
 
 // handleCameraCloudPlayback handles POST /api/v1/cameras/{id}/cloud/playback
 // {day: "YYYY-MM-DD", start_time: 1712345678}
-func handleCameraCloudPlayback(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, sessionMgr *SessionManager) {
+func handleCameraCloudPlayback(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
 	if _, ok := streamMgr.GetCamera(camID); !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-	cloud := streamMgr.Registry().Template().Cloud()
+	cloud := streamMgr.CameraCloud(camID)
 	if cloud == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "not_signed_in", "message": "Sign in to Osaio first."})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "not_signed_in", "message": "Sign the camera's Osaio login in first."})
 		return
 	}
 	var req struct {
@@ -536,8 +536,8 @@ func handleCameraCloudPlayback(w http.ResponseWriter, r *http.Request, camID str
 }
 
 // handleSDCardPlayback handles POST /api/v1/cameras/{id}/sdcard/playback
-func handleSDCardPlayback(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, sessionMgr *SessionManager) {
-	handleSDCardInfo(w, r, camID, streamMgr, sessionMgr)
+func handleSDCardPlayback(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
+	handleSDCardInfo(w, r, camID, streamMgr)
 }
 
 // handleTalkStart handles POST /api/v1/cameras/{id}/talk/start

@@ -525,20 +525,7 @@ func main() {
 	sessionRegistry := NewSessionRegistry(sessionMgr, *country, phoneCode, keys)
 	streamMgr.SetSessionRegistry(sessionRegistry)
 	streamMgr.SetLoginRenewer(renewCloudLogin)
-	streamMgr.SetCloudResolver(func(uuid string) *bridge.Cloud {
-		if pm := streamMgr.ProfileManager(); pm != nil {
-			if prof := pm.GetProfile(); prof != nil {
-				if creds, ok := prof.AccountForCamera(uuid); ok {
-					return sessionRegistry.CloudFor(creds.AccountEmail)
-				}
-			}
-		}
-		// A camera saved without its login: whichever signed-in login lists it.
-		if _, session, ok := sessionRegistry.FindDevice(uuid); ok && session.IsAuthenticated() {
-			return session.Cloud()
-		}
-		return nil // wait until the camera's login is signed in
-	})
+	streamMgr.SetCloudResolver(streamMgr.CameraCloud)
 	if *consumerRTSPBase != "" {
 		streamMgr.SetConsumerRTSPBase(*consumerRTSPBase)
 	}

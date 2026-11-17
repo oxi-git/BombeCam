@@ -21,7 +21,7 @@ func TestSDCardEndpointsSayUnavailable(t *testing.T) {
 		t.Fatalf("enroll: %v", err)
 	}
 
-	handlers := map[string]func(http.ResponseWriter, *http.Request, string, *StreamManager, *SessionManager){
+	handlers := map[string]func(http.ResponseWriter, *http.Request, string, *StreamManager){
 		"/api/v1/cameras/cam-sd/sdcard":            handleSDCardInfo,
 		"/api/v1/cameras/cam-sd/sdcard/recordings": handleSDCardRecordings,
 	}
@@ -29,7 +29,7 @@ func TestSDCardEndpointsSayUnavailable(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.RemoteAddr = "127.0.0.1:50000"
-		handle(rec, req, "cam-sd", streamMgr, sm)
+		handle(rec, req, "cam-sd", streamMgr)
 		if rec.Code != http.StatusNotImplemented {
 			t.Fatalf("%s: got %d, want 501", path, rec.Code)
 		}
@@ -106,7 +106,7 @@ func TestSDCardEndpointsMapReply(t *testing.T) {
 	defer SetGatewayControlChannel(nil)
 
 	rec := httptest.NewRecorder()
-	handleSDCardInfo(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cameras/cam-sd/sdcard", nil), "cam-sd", streamMgr, sm)
+	handleSDCardInfo(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cameras/cam-sd/sdcard", nil), "cam-sd", streamMgr)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("sdcard: got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -125,7 +125,7 @@ func TestSDCardEndpointsMapReply(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	handleSDCardRecordings(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cameras/cam-sd/sdcard/recordings", nil), "cam-sd", streamMgr, sm)
+	handleSDCardRecordings(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cameras/cam-sd/sdcard/recordings", nil), "cam-sd", streamMgr)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("recordings: got %d body=%s", rec.Code, rec.Body.String())
 	}

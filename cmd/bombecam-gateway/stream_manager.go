@@ -774,6 +774,29 @@ func (sm *StreamManager) cloudForUUID(uuid string) *bridge.Cloud {
 	return def
 }
 
+// CameraCloud is the cloud of the login that owns a camera: the one it was
+// added with, else whichever signed-in login lists it. Nil means no login that
+// can answer for it is signed in yet.
+func (sm *StreamManager) CameraCloud(uuid string) *bridge.Cloud {
+	if pm := sm.ProfileManager(); pm != nil {
+		if prof := pm.GetProfile(); prof != nil {
+			if creds, ok := prof.AccountForCamera(uuid); ok {
+				if reg := sm.Registry(); reg != nil {
+					return reg.CloudFor(creds.AccountEmail)
+				}
+				return nil
+			}
+		}
+	}
+	// A camera saved without its login: whichever signed-in login lists it.
+	if reg := sm.Registry(); reg != nil {
+		if _, session, ok := reg.FindDevice(uuid); ok && session.IsAuthenticated() {
+			return session.Cloud()
+		}
+	}
+	return nil
+}
+
 // SetCloud updates the cloud reference if initialized after StreamManager creation.
 func (sm *StreamManager) SetCloud(c *bridge.Cloud) {
 	sm.mu.Lock()
