@@ -300,7 +300,7 @@ func handleCameraShadow(w http.ResponseWriter, r *http.Request, camID string, st
 	}
 
 	cc := GatewayControlChannel()
-	if local, ok := cc.(*bridge.MQTTControlChannel); ok && local != nil {
+	if local, ok := bridge.AsLocalControl(cc); ok {
 		doc, err := local.ReportedShadow(camID)
 		if err != nil {
 			doc = &shadowshim.ShadowDocument{State: shadowshim.ShadowState{Reported: map[string]any{}}}

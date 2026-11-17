@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Fever-r/BombeCam/internal/mediamtx"
 )
 
 // Recording is local footage of a published stream, written by MediaMTX into
@@ -175,9 +177,11 @@ func listRecordings() []recordingFile {
 	return out
 }
 
-// isRecordingFile reports whether name looks like a MediaMTX recording segment.
+// isRecordingFile reports whether name is a segment in the format MediaMTX was
+// told to write. Read from the same contract, so changing the format there
+// cannot leave this listing the wrong files.
 func isRecordingFile(name string) bool {
-	return strings.HasSuffix(name, ".mp4") || strings.HasSuffix(name, ".mkv") || strings.HasSuffix(name, ".ts")
+	return strings.HasSuffix(name, mediamtx.RecordExt)
 }
 
 func sizeOf(path string) int64 {

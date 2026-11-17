@@ -37,7 +37,7 @@ func readCameraAttributes(ctx context.Context, cc bridge.ControlChannel, camera 
 			}
 		}
 		delete(values, "WhiteLightSw")
-	} else if local, ok := cc.(*bridge.MQTTControlChannel); ok {
+	} else if local, ok := bridge.AsLocalControl(cc); ok {
 		doc, err := local.ReportedShadow(camera)
 		if err != nil {
 			errs = append(errs, err)

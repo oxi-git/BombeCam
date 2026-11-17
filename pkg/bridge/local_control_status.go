@@ -62,3 +62,19 @@ func (m *MQTTControlChannel) ReportedShadow(uuid string) (*shadowshim.ShadowDocu
 	}
 	return doc, nil
 }
+
+// LocalControl is a control channel that answers from the local firewall
+// backend (its broker) instead of the vendor cloud. Callers detect it by
+// capability, not by concrete type, so another local backend can be added
+// without hunting down every type switch.
+type LocalControl interface {
+	LocalStatus(uuid string) LocalControlStatus
+	ReportedShadow(uuid string) (*shadowshim.ShadowDocument, error)
+}
+
+// AsLocalControl returns the channel as a local backend, or false when it
+// reads the cameras through the vendor cloud.
+func AsLocalControl(cc ControlChannel) (LocalControl, bool) {
+	local, ok := cc.(LocalControl)
+	return local, ok && local != nil
+}

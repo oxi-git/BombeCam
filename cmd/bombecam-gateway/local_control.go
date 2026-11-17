@@ -9,7 +9,7 @@ import (
 // isLocalControl reports whether commands go to the cameras through the local
 // firewall backend rather than the vendor cloud.
 func isLocalControl(cc bridge.ControlChannel) bool {
-	_, ok := cc.(*bridge.MQTTControlChannel)
+	_, ok := bridge.AsLocalControl(cc)
 	return ok
 }
 
@@ -19,7 +19,7 @@ func handleControlStatus(w http.ResponseWriter, r *http.Request, streamMgr *Stre
 		return
 	}
 	cc := GatewayControlChannel()
-	if local, ok := cc.(*bridge.MQTTControlChannel); ok {
+	if local, ok := bridge.AsLocalControl(cc); ok {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"test_mode":         streamMgr.LocalControlTest(),
 			"control":           local.LocalStatus(r.URL.Query().Get("camera_id")),
