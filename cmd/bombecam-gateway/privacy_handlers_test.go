@@ -925,7 +925,9 @@ func TestForgetRouterKeepsLastAddress(t *testing.T) {
 	_ = pm.Save(context.Background(), &profile.Profile{Version: profile.CurrentSchemaVersion,
 		Credentials: profile.CloudCredentials{AccountEmail: "a@example.test"},
 		Privacy:     profile.PrivacySettings{RouterAddress: "192.168.8.1:22", LastRouterAddress: "192.168.8.1:22", RouterConnected: true}})
-	forgetRouter(context.Background(), pm, true)
+	if err := forgetRouter(context.Background(), pm, true); err != nil {
+		t.Fatalf("forgetRouter: %v", err)
+	}
 	ps := pm.GetProfile().Privacy
 	if ps.RouterAddress != "" || ps.RouterConnected || ps.LastRouterAddress != "192.168.8.1:22" {
 		t.Fatalf("privacy after forget: %+v", ps)

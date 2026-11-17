@@ -1470,7 +1470,11 @@ func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *b
 		for _, s := range subnets {
 			cidrs = append(cidrs, s.String())
 		}
-		_ = v.SetAllowedSubnets(cidrs)
+		// An unusable list must not take the camera offline, but a silent
+		// drop would leave the ICE candidates unrestricted without a trace.
+		if err := v.SetAllowedSubnets(cidrs); err != nil {
+			fmt.Printf("[%s] ignoring unusable allowed subnets %v: %v\n", mc.Name, cidrs, err)
+		}
 	}
 
 	candFilter, _ := netstack.NewICECandidateFilter(nil, nil)

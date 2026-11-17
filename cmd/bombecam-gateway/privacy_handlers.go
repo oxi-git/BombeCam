@@ -216,7 +216,7 @@ func rememberLearnedMACs(ctx context.Context, pm profile.ProfileManager, learned
 	if pm == nil || len(learned) == 0 {
 		return
 	}
-	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+	saved, err := pm.Update(ctx, func(p *profile.Profile) error {
 		for id, mac := range learned {
 			if cam, ok := p.Cameras[id]; ok && cam.MACAddress == "" {
 				cam.MACAddress = mac
@@ -225,6 +225,11 @@ func rememberLearnedMACs(ctx context.Context, pm profile.ProfileManager, learned
 		}
 		return nil
 	})
+	if err != nil {
+		fmt.Printf("[privacy] could not save the cameras' MAC addresses: %v\n", err)
+	} else if saved == nil {
+		fmt.Println("[privacy] the cameras' MAC addresses were not saved")
+	}
 }
 
 // routerCameras are the cameras the router should block (chosen, MAC known),
@@ -418,12 +423,14 @@ func adoptLocalRegion(ctx context.Context, pm profile.ProfileManager, ps profile
 	if err != nil {
 		return region
 	}
-	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+	if _, err := pm.Update(ctx, func(p *profile.Profile) error {
 		if p.Privacy.Region == "" {
 			p.Privacy.Region = string(r)
 		}
 		return nil
-	})
+	}); err != nil {
+		fmt.Printf("[privacy] could not save the adopted region: %v\n", err)
+	}
 	return r
 }
 
@@ -466,11 +473,13 @@ func syncLocalLocked(ctx context.Context, streamMgr *StreamManager, pm profile.P
 	// Only the choice is recorded here: AppliedCameras and AppliedRegion
 	// describe the router, which this backend knows nothing about.
 	now := time.Now().UTC()
-	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+	if _, err := pm.Update(ctx, func(p *profile.Profile) error {
 		p.Privacy.BlockCloudVideo = profile.BoolPtr(block)
 		p.Privacy.AppliedAt = now
 		return nil
-	})
+	}); err != nil {
+		fmt.Printf("[privacy] could not save the local firewall's state: %v\n", err)
+	}
 	fmt.Printf("[privacy] local firewall reports: blocking %d camera(s), region %s\n", len(want), region)
 	return routerOutcome{OK: true, Changed: true}
 }
@@ -698,7 +707,7 @@ func recordApplied(ctx context.Context, pm profile.ProfileManager, want []openwr
 		macs = append(macs, c.MAC)
 	}
 	now := time.Now().UTC()
-	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+	if _, err := pm.Update(ctx, func(p *profile.Profile) error {
 		p.Privacy.AppliedCameras = macs
 		p.Privacy.BlockCloudVideo = profile.BoolPtr(len(macs) > 0)
 		p.Privacy.AppliedAt = now
@@ -715,14 +724,18 @@ func recordApplied(ctx context.Context, pm profile.ProfileManager, want []openwr
 			p.Privacy.RouterHostKeyType = res.HostKeyType
 		}
 		return nil
-	})
+	}); err != nil {
+		fmt.Printf("[privacy] could not save what the router now blocks: %v\n", err)
+	}
 }
 
 func markRouterDisconnected(ctx context.Context, pm profile.ProfileManager) {
-	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+	if _, err := pm.Update(ctx, func(p *profile.Profile) error {
 		p.Privacy.RouterConnected = false
 		return nil
-	})
+	}); err != nil {
+		fmt.Printf("[privacy] could not record that the router is disconnected: %v\n", err)
+	}
 }
 
 // privacyAutoSyncLoop keeps the router in line in the background: a camera
@@ -1066,13 +1079,20 @@ func handlePrivacyCamera(w http.ResponseWriter, r *http.Request, streamMgr *Stre
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "unknown_camera", "message": "That camera isn't set up in BombeCam."})
 		return
 	}
-	_, _ = pm.Update(r.Context(), func(p *profile.Profile) error {
+	if _, err := pm.Update(r.Context(), func(p *profile.Profile) error {
 		if p.Privacy.Blocked == nil {
 			p.Privacy.Blocked = map[string]bool{}
 		}
 		p.Privacy.Blocked[req.CameraID] = *req.Blocked
 		return nil
-	})
+	}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "choice_not_saved",
+			"message": "That camera's choice could not be saved: " + err.Error(),
+		})
+		return
+	}
+
 	respondAfterChange(w, r, streamMgr, pm)
 }
 
@@ -1090,14 +1110,20 @@ func handlePrivacyBlockAll(w http.ResponseWriter, r *http.Request, streamMgr *St
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request", "message": `Send {"blocked": true|false}.`})
 		return
 	}
-	setAllBlocked(r.Context(), streamMgr, pm, *req.Blocked)
+	if err := setAllBlocked(r.Context(), streamMgr, pm, *req.Blocked); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "choice_not_saved",
+			"message": "Those choices could not be saved: " + err.Error(),
+		})
+		return
+	}
 	respondAfterChange(w, r, streamMgr, pm)
 }
 
-func setAllBlocked(ctx context.Context, streamMgr *StreamManager, pm profile.ProfileManager, block bool) {
+func setAllBlocked(ctx context.Context, streamMgr *StreamManager, pm profile.ProfileManager, block bool) error {
 	cams, learned := collectPrivacyCameras(ctx, streamMgr, pm)
 	rememberLearnedMACs(ctx, pm, learned)
-	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+	_, err := pm.Update(ctx, func(p *profile.Profile) error {
 		p.Privacy.Blocked = map[string]bool{}
 		for _, c := range cams {
 			p.Privacy.Blocked[c.ID] = block
@@ -1105,6 +1131,7 @@ func setAllBlocked(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 		p.Privacy.BlockNewCameras = block
 		return nil
 	})
+	return err
 }
 
 // respondAfterChange pushes the new choices to the router (when connected)
@@ -1186,7 +1213,13 @@ func connectRouter(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 	}
 	var ks *routerpush.KeySet
 	if !prof.RouterKey.IsEmpty() {
-		ks, _ = routerpush.ParseKeySet(prof.RouterKey.Expose())
+		var err error
+		if ks, err = routerpush.ParseKeySet(prof.RouterKey.Expose()); err != nil {
+			// A key we cannot read is replaced, so the router will no longer
+			// trust the old one; say so instead of swapping it silently.
+			fmt.Printf("[privacy] stored router key is unreadable, replacing it: %v\n", err)
+			ks = nil
+		}
 	}
 	if ks == nil {
 		var err error
@@ -1206,7 +1239,7 @@ func connectRouter(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 	if res.ExitCode != 0 || !found || result.Status != "ok" {
 		return routerOutcome{Code: "router_script_failed", Message: routerFailureMessage(res.Output), Output: res.Output}, res
 	}
-	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+	if _, err := pm.Update(ctx, func(p *profile.Profile) error {
 		if !sameRouter(p.Privacy.RouterAddress, addr) {
 			p.Privacy.AppliedCameras = nil // a different router: nothing known about it
 			p.Privacy.AppliedRegion = ""
@@ -1227,7 +1260,11 @@ func connectRouter(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 		p.Privacy.RouterConnected = true
 		p.RouterKey = profile.SecretString(ks.PEM())
 		return nil
-	})
+	}); err != nil {
+		// The key is on the router but not in the profile: the next sync
+		// would try a key we no longer have. Say so plainly.
+		return routerOutcome{Code: "save_failed", Message: "The router accepted BombeCam's key, but the profile could not be saved: " + err.Error()}, res
+	}
 	fmt.Printf("[privacy] router %s connected (%s); BombeCam's key installed\n", addr, result.Firewall)
 	connectOutput := res.Output
 
@@ -1319,7 +1356,9 @@ func handleRouterDisconnect(w http.ResponseWriter, r *http.Request, streamMgr *S
 	defer cancel()
 	o := uninstallFromRouter(ctx, pm)
 	if o.OK {
-		forgetRouter(ctx, pm, true)
+		if err := forgetRouter(ctx, pm, true); err != nil {
+			fmt.Printf("[privacy] router rules removed but the profile could not be updated: %v\n", err)
+		}
 	}
 	recordRouterOutcome(o, false)
 	writeJSON(w, statusForOutcome(o), map[string]any{"ok": o.OK, "router": o, "error": o.Code, "message": o.Message,
@@ -1370,8 +1409,8 @@ func uninstallFromRouter(ctx context.Context, pm profile.ProfileManager) routerO
 // forgetRouter drops the router's address, identity and BombeCam's key. With
 // unblock, every camera is also set to not blocked (the router no longer has
 // rules); without it the choices are kept for the next router.
-func forgetRouter(ctx context.Context, pm profile.ProfileManager, unblock bool) {
-	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+func forgetRouter(ctx context.Context, pm profile.ProfileManager, unblock bool) error {
+	_, err := pm.Update(ctx, func(p *profile.Profile) error {
 		keep, last := p.Privacy.BlockStreamSetup, p.Privacy.LastRouterAddress
 		region := p.Privacy.Region
 		blocked, blockNew := p.Privacy.Blocked, p.Privacy.BlockNewCameras
@@ -1382,6 +1421,7 @@ func forgetRouter(ctx context.Context, pm profile.ProfileManager, unblock bool) 
 		p.RouterKey = ""
 		return nil
 	})
+	return err
 }
 
 // handlePrivacyForgetRouter handles POST /api/v1/privacy/forget-router: after a
@@ -1393,8 +1433,15 @@ func handlePrivacyForgetRouter(w http.ResponseWriter, r *http.Request, streamMgr
 		return
 	}
 	routerMu.Lock()
-	forgetRouter(r.Context(), pm, false)
+	err := forgetRouter(r.Context(), pm, false)
 	routerMu.Unlock()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "router_not_forgotten",
+			"message": "The router could not be forgotten: " + err.Error(),
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -1416,10 +1463,16 @@ func handlePrivacyBackend(w http.ResponseWriter, r *http.Request, streamMgr *Str
 			"message": `Send {"backend": "router"} or {"backend": "local"}.`})
 		return
 	}
-	_, _ = pm.Update(r.Context(), func(p *profile.Profile) error {
+	if _, err := pm.Update(r.Context(), func(p *profile.Profile) error {
 		p.Privacy.Backend = req.Backend
 		return nil
-	})
+	}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "backend_not_saved",
+			"message": "The firewall choice could not be saved: " + err.Error(),
+		})
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), changeTimeout)
 	defer cancel()
 	o := syncFirewall(ctx, streamMgr, pm, true)
@@ -1452,10 +1505,16 @@ func handlePrivacyRegion(w http.ResponseWriter, r *http.Request, streamMgr *Stre
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_region", "message": err.Error()})
 		return
 	}
-	_, _ = pm.Update(r.Context(), func(p *profile.Profile) error {
+	if _, err := pm.Update(r.Context(), func(p *profile.Profile) error {
 		p.Privacy.Region = string(region)
 		return nil
-	})
+	}); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "region_not_saved",
+			"message": "The region could not be saved: " + err.Error(),
+		})
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), changeTimeout)
 	defer cancel()
 	o := syncFirewall(ctx, streamMgr, pm, true)

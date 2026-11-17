@@ -194,7 +194,7 @@ func handleCameraAdd(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 	}
 
 	if pm != nil {
-		_, _ = pm.Update(r.Context(), func(p *profile.Profile) error {
+		if _, err := pm.Update(r.Context(), func(p *profile.Profile) error {
 			if p.Cameras == nil {
 				p.Cameras = make(map[string]profile.CameraProfile)
 			}
@@ -217,7 +217,15 @@ func handleCameraAdd(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 				p.Cameras[id] = cam
 			}
 			return nil
-		})
+		}); err != nil {
+			// The stream is already running with cameras the profile file does not
+			// list. Say so instead of reporting success.
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error":   "camera_not_saved",
+				"message": "The cameras are streaming but could not be saved: " + err.Error(),
+			})
+			return
+		}
 	}
 
 	if pm != nil {
@@ -261,11 +269,20 @@ func handleCameraRemove(w http.ResponseWriter, r *http.Request, camID string, st
 
 	wasEnrolled := streamMgr.Unenroll(camID)
 	if pm != nil {
-		_ = pm.UnenrollCamera(r.Context(), camID)
-		_, _ = pm.Update(r.Context(), func(p *profile.Profile) error {
+		// One save covers both the camera entry and the privacy block: two
+		// updates would be two load-modify-save cycles, and the first could
+		// succeed while the second fails.
+		if _, err := pm.Update(r.Context(), func(p *profile.Profile) error {
+			delete(p.Cameras, camID)
 			delete(p.Privacy.Blocked, camID)
 			return nil
-		})
+		}); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error":   "camera_not_saved",
+				"message": "The camera stopped streaming but could not be removed from storage: " + err.Error(),
+			})
+			return
+		}
 	}
 
 	note := "BombeCam did not change this camera's internet access."

@@ -302,7 +302,9 @@ func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *S
 
 	// Fetch this login's camera list in the background.
 	go func() {
-		_, _, _ = session.DeviceList(true)
+		if _, _, err := session.DeviceList(true); err != nil {
+			fmt.Printf("[onboarding] could not refresh the camera list: %v\n", err)
+		}
 	}()
 
 	respMap := map[string]any{
@@ -600,7 +602,7 @@ func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *Sess
 			devMap[d.UUID] = d
 		}
 
-		_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+		_, saveErr := pm.Update(ctx, func(p *profile.Profile) error {
 			if p.Cameras == nil {
 				p.Cameras = make(map[string]profile.CameraProfile)
 			}
@@ -631,6 +633,15 @@ func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *Sess
 			}
 			return nil
 		})
+		if saveErr != nil {
+			// The streams are already running; say the profile disagrees
+			// instead of reporting a clean enrollment.
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error":   "cameras_not_saved",
+				"message": "The cameras are streaming but could not be saved: " + saveErr.Error(),
+			})
+			return
+		}
 	}
 
 	if pm != nil {
