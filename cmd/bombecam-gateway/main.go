@@ -407,7 +407,13 @@ func main() {
 	var startProf *profile.Profile
 	if pmErr == nil && pm != nil {
 		if has, herr := pm.HasProfile(context.Background()); herr == nil && has {
-			startProf, _ = pm.Load(context.Background())
+			// A profile exists but will not open: the key is wrong or the file
+			// is damaged. Say so, or the gateway boots with empty integration
+			// settings and the UI looks normal.
+			var lerr error
+			if startProf, lerr = pm.Load(context.Background()); lerr != nil {
+				fmt.Printf("[profile] stored profile could not be read: %v\n", lerr)
+			}
 		}
 	}
 	integ := profile.IntegrationSettings{}

@@ -120,6 +120,16 @@ func runGatewayStartup(sm *SessionManager, stm *StreamManager, email, password, 
 	if err != nil {
 		fmt.Printf("[profile] error checking profile existence: %v\n", err)
 	}
+	if hasProfile {
+		// The file is there, so this is not a first run. If it will not open,
+		// say that plainly: falling through would offer the setup form to
+		// somebody whose settings are simply locked or damaged.
+		if _, lerr := pm.Load(ctx); lerr != nil {
+			fmt.Printf("[profile] stored profile exists but could not be opened: %v\n", lerr)
+			sm.SetStatus(SessionStatusUnavailable, fmt.Sprintf("the saved profile could not be opened: %v", lerr))
+			return
+		}
+	}
 
 	resume := func() {
 		runGatewayStartupSafely(sm, stm, email, password, country, enrolledF, deviceSel, httpAddr)

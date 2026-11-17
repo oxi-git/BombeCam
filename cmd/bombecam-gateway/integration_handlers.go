@@ -690,6 +690,9 @@ func handleStreamsIntegration(w http.ResponseWriter, r *http.Request, streamMgr 
 		}
 		e := streamsStreamEntry{
 			UUID: c.ID, Name: c.Name, Model: c.Model, StreamName: c.StreamName,
+			// Publication readiness is the gateway's own view: a session exists.
+			// Whether MediaMTX has the path is a separate question; do not read
+			// this as "MediaMTX confirmed".
 			Streaming: c.Streaming, PublicationReady: c.Streaming,
 			RTSPURL: c.RTSPURL, RTSPURLByID: c.RTSPURLByID, HLSURL: c.HLSURL, SnapshotURL: c.SnapshotURL,
 			Transport: transport, VideoCodec: "h264", AudioCodec: "aac",
