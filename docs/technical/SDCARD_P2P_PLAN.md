@@ -1,13 +1,41 @@
 # SD card over the control channel — implementation plan
 
-Status: **phase 1 implemented, not yet confirmed against a real camera**. Phase 2
+Status: **phase 1 confirmed against a real WS03 on 2026-11-17**. Phase 2
 (playback bytes) waits for a real reply.
+
+## Confirmed on hardware
+
+Card `6b13a142f1d0b6d42411293f892babfe` (WS03_A10S14A5, "Ingresso"):
+
+```json
+GET /sdcard            {"raw":{"Status":0,"TotalSizeK":31251968,"UsedSizeK":30285312},
+                        "status":"0","total_kb":31251968,"used_kb":30285312}
+GET /sdcard/recordings {"cur_days":"14,15,16,17","cur_month":"11","prev_month":"10",
+                        "raw":{"curMonDays":"14,15,16,17","curMonth":"11","preMonDays":"","preMonth":"10"}}
+```
+
+Both keys the plan assumed are answered by this firmware: `RecordDays` needs no
+fallback to `service.GetLocalVideoTime`. `preMonDays` came back empty, consistent
+with a card holding only the current month.
+
+### The reply carries no uuid
+
+The WS03 answers `atr.get` with `uuid: ""`. Matching on it dropped every reply and
+made all SD requests time out with `context canceled` while the camera was
+answering correctly. Correlation is now the message id (already unique and bound to
+one connection when sent) plus the connection it arrives on; a non-empty uuid that
+names another camera is still rejected. `TestSDCardQueryAcceptsEmptyReplyUUID`
+pins this.
+
+Still unconfirmed: what `Status: 0` means beyond "not an error", and whether a
+second card generation reports the same key names.
 
 ## What phase 1 added
 
 - `Signaling.QueryCommand(ctx, camera, method, data)` (`pkg/bridge/signaling.go`) — a
   correlated request/reply on the existing socket, its own `cmdQueries` map, and a
-  matcher that binds message id, socket, camera and method. `failQueriesLocked` now
+  matcher that binds message id, socket, camera and method (only when the reply names
+  a camera; this firmware sends none). `failQueriesLocked` now
   releases command waiters too, so a dropped socket cannot hang a call.
 - `SignalingControlChannel.GetSDCardInfo` / `GetRecordDays`
   (`pkg/bridge/signaling_channel.go`) — extra methods on the concrete type, not on
