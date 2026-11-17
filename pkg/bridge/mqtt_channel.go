@@ -10,25 +10,6 @@ import (
 	shadowshim "github.com/Fever-r/BombeCam/pkg/bridge/shadow_shim"
 )
 
-// MQTTControlChannelOption allows customizing the MQTTControlChannel.
-type MQTTControlChannelOption func(*MQTTControlChannel)
-
-// WithRequireReadback configures whether Invariant I4 readback confirmation is enforced.
-func WithRequireReadback(required bool) MQTTControlChannelOption {
-	return func(m *MQTTControlChannel) {
-		m.requireReadback = required
-	}
-}
-
-// WithChannelTimeout sets the default timeout for operations.
-func WithChannelTimeout(timeout time.Duration) MQTTControlChannelOption {
-	return func(m *MQTTControlChannel) {
-		if timeout > 0 {
-			m.timeout = timeout
-		}
-	}
-}
-
 // MQTTControlChannel implements ControlChannel using the AWS IoT Shadow Shim
 // running on local MQTTS port 8883 with Invariant I4 monotonic readback confirmation.
 type MQTTControlChannel struct {
@@ -48,7 +29,7 @@ var _ ControlChannel = (*MQTTControlChannel)(nil)
 
 // NewMQTTControlChannel creates a new local MQTT shadow control channel.
 // If daemon is nil, a new in-process shadow shim daemon is created and started.
-func NewMQTTControlChannel(daemon *shadowshim.ShadowShimDaemon, timeout time.Duration, opts ...MQTTControlChannelOption) *MQTTControlChannel {
+func NewMQTTControlChannel(daemon *shadowshim.ShadowShimDaemon, timeout time.Duration) *MQTTControlChannel {
 	if timeout <= 0 {
 		timeout = 2000 * time.Millisecond
 	}
@@ -69,10 +50,6 @@ func NewMQTTControlChannel(daemon *shadowshim.ShadowShimDaemon, timeout time.Dur
 		ptzCancel:       make(map[string]chan struct{}),
 	}
 
-	for _, opt := range opts {
-		opt(ch)
-	}
-
 	return ch
 }
 
@@ -81,22 +58,6 @@ func (m *MQTTControlChannel) Daemon() *shadowshim.ShadowShimDaemon {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.daemon
-}
-
-// SetTimeout updates the operation timeout.
-func (m *MQTTControlChannel) SetTimeout(d time.Duration) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if d > 0 {
-		m.timeout = d
-	}
-}
-
-// SetRequireReadback sets whether Invariant I4 readback is enforced.
-func (m *MQTTControlChannel) SetRequireReadback(b bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.requireReadback = b
 }
 
 // MovePTZ pulses the pan/tilt stepper motors (dir: 1=left, 2=right, 3=up, 4=down, 0=stop).

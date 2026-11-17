@@ -136,13 +136,6 @@ func (v *Verifier) ProbeMatrix() []NetworkProbe {
 	return out
 }
 
-// SetControlPath records how camera commands travel (informational).
-func (v *Verifier) SetControlPath(cp ControlPathType) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.controlPath = cp
-}
-
 // ControlPath returns the currently configured control path
 func (v *Verifier) ControlPath() ControlPathType {
 	v.mu.RLock()

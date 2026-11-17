@@ -97,20 +97,6 @@ func NewSupervisor(cfg Config) *Supervisor {
 	}
 }
 
-// SetOutput configures additional writers that receive MediaMTX stdout/stderr.
-func (s *Supervisor) SetOutput(stdout, stderr io.Writer) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if stdout == nil {
-		stdout = io.Discard
-	}
-	if stderr == nil {
-		stderr = io.Discard
-	}
-	s.stdout = stdout
-	s.stderr = stderr
-}
-
 // CheckPortListening probes a TCP port on localhost to determine if a service is actively listening.
 func CheckPortListening(port int, timeout time.Duration) bool {
 	if timeout <= 0 {

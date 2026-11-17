@@ -97,16 +97,6 @@ func NewOperatorManager(cfg OperatorConfig) *OperatorManager {
 	return om
 }
 
-// AddAllowedHost registers an additional allowed host or IP (e.g. configured LAN IP).
-func (om *OperatorManager) AddAllowedHost(host string) {
-	om.mu.Lock()
-	defer om.mu.Unlock()
-	h := cleanHost(host)
-	if h != "" {
-		om.allowedHosts[h] = struct{}{}
-	}
-}
-
 func cleanHost(host string) string {
 	h := strings.TrimSpace(strings.ToLower(host))
 	if stripped, _, err := net.SplitHostPort(h); err == nil {

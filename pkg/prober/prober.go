@@ -8,7 +8,6 @@
 package prober
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -453,23 +452,6 @@ func runCmd(ctx context.Context, name string, args ...string) (string, error) {
 		return string(out), fmt.Errorf("%s %s: %w (%s)", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
-}
-
-// ReadLeaseFile reports whether addr holds a lease issued by our own dnsmasq.
-func ReadLeaseFile(path, addr string) (bool, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) >= 3 && fields[2] == addr {
-			return true, nil
-		}
-	}
-	return false, sc.Err()
 }
 
 // ProbeOnce performs a single probe and is what the re-executed process runs
