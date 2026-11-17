@@ -199,7 +199,7 @@ func (s *Signaling) readLoop(conn *websocket.Conn) {
 			if strings.Contains(m.Method, "Sdp") || len(summary) > 300 {
 				summary = summary[:min(len(summary), 120)] + "..."
 			}
-			fmt.Printf("[ws recv] method=%s data=%s\n", m.Method, summary)
+			fmt.Printf("[ws recv] method=%s id=%s data=%s\n", m.Method, m.MsgID, summary)
 		}
 		s.mu.Lock()
 		s.deliverAttributesLocked(conn, m)
