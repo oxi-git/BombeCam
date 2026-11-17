@@ -30,3 +30,6 @@ deploy/mosquitto/certs/
 
 # Release downloads (go run ./tools/release)
 dist/
+
+# Binaries left in the tree by `go build ./...`
+/bombecam-net
