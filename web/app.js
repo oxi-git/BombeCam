@@ -3313,30 +3313,23 @@ async function renderSDCard(el, camPath, esc) {
   } else {
     const d = await daysRes.json();
     const now = new Date();
-    const today = SDDateKey(now);
-    const monthName = m => new Date(2000, m - 1, 1).toLocaleString(undefined, { month: 'long' });
+    const pad = n => String(n).padStart(2, '0');
     // The camera names a month without a year ("11") and a day without either
-    // ("14"); a day number in the previous month that is larger than today's
-    // belongs to last year.
-    const monthYear = (month, latest) => {
-      let y = now.getFullYear();
-      if (month > now.getMonth() + 1) y -= 1;
-      const days = latest.filter(day => day > now.getDate()).length;
-      if (month === now.getMonth() && days > 0 && latest.length > 0) y = y;
-      return y;
-    };
+    // ("14"). A month later than the current one belongs to last year.
+    const monthName = m => new Date(2000, m - 1, 1).toLocaleString(undefined, { month: 'long' });
     const entries = [];
     for (const [month, field] of [[d.cur_month, 'cur_days'], [d.prev_month, 'prev_days']]) {
       const mn = Number(month);
       if (!mn) continue;
       const days = String(d[field] || '').split(',').map(s => s.trim()).filter(Boolean)
         .map(Number).filter(n => n > 0).sort((a, b) => a - b);
-      const year = monthYear(mn, days);
+      const year = mn > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear();
       for (const day of days) {
-        entries.push({ key: year + '-' + String(mn).padStart(2, '0') + '-' + String(day).padStart(2, '0'),
+        entries.push({ key: year + '-' + pad(mn) + '-' + pad(day),
           label: monthName(mn) + ' ' + day + ', ' + year, monthLabel: monthName(mn) + ' ' + year });
       }
     }
+    const today = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
     entries.sort((a, b) => (a.key < b.key ? 1 : -1));
     let lastMonth = null;
     for (const e of entries) {
