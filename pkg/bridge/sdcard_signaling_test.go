@@ -146,6 +146,25 @@ func TestSDCardQueryRejectsUncorrelatedReply(t *testing.T) {
 	}
 }
 
+// The WS03 answers atr.get with an empty uuid. The message id already ties the
+// reply to one camera on one connection, so that must still resolve.
+func TestSDCardQueryAcceptsEmptyReplyUUID(t *testing.T) {
+	ts := sdCardServer(t, func(m *wsMsg, cmd string) any {
+		m.UUID = ""
+		return map[string]any{"SdCardInfo": map[string]any{"Status": 0.0, "TotalSizeK": 31251968.0}}
+	})
+	sig := sdCardSignaling(t, ts)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	body, err := sig.QueryCommand(ctx, "fixture", "atr.get", []string{"SdCardInfo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body == nil {
+		t.Fatal("empty-uuid reply came back nil")
+	}
+}
+
 // A lost socket fails the pending call instead of leaving it to hang.
 func TestSDCardQueryFailsWhenSocketDrops(t *testing.T) {
 	received := make(chan struct{}, 1)

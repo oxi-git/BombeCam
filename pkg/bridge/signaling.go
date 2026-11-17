@@ -592,7 +592,7 @@ func (s *Signaling) answerCmdLocked(conn *websocket.Conn, m wsMsg) {
 		fmt.Printf("[ws] %s id=%s dropped: reply came on another connection\n", m.Method, m.MsgID)
 		return
 	}
-	if m.UUID != q.camera {
+	if m.UUID != "" && m.UUID != q.camera {
 		fmt.Printf("[ws] %s id=%s dropped: uuid %q is not the queried camera %q\n", m.Method, m.MsgID, m.UUID, q.camera)
 		return
 	}
