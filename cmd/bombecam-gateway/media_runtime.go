@@ -19,7 +19,7 @@ import (
 var (
 	mediaRuntimeMu  sync.RWMutex
 	mediaSupervisor *mediamtx.Supervisor
-	mediaAPIBase    = "http://127.0.0.1:9997"
+	mediaAPIBase    = fmt.Sprintf("http://127.0.0.1:%d", mediamtx.DefaultAPIPort)
 )
 
 // setMediaRuntime records the MediaMTX supervisor (nil when unmanaged) and API base.

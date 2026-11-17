@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Fever-r/BombeCam/internal/mediamtx"
 	"github.com/Fever-r/BombeCam/pkg/bridge"
 )
 
@@ -64,7 +65,7 @@ func extractPortFromURL(rawURL string, defaultPort int) int {
 		}
 	}
 	if strings.EqualFold(u.Scheme, "rtsp") {
-		return 8554
+		return mediamtx.DefaultRTSPPort
 	}
 	if strings.EqualFold(u.Scheme, "https") {
 		return 443
@@ -393,7 +394,7 @@ func (sm *StreamManager) portMappings(r *http.Request) globalPortMappings {
 	pm := globalPortMappings{
 		RTSP:    extractPortFromURL(sm.ConsumerRTSPBaseURL(r), sm.RTSPPort()),
 		HLS:     extractPortFromURL(sm.ConsumerHLSBaseURL(r), sm.HLSPort()),
-		WebRTC:  portOfURL(sm.WebRTCBase(), 8889),
+		WebRTC:  portOfURL(sm.WebRTCBase(), mediamtx.DefaultWebRTCPort),
 		Gateway: gatewayPort,
 	}
 	if s := currentIntegrationSettings(); s.Snapshots {
@@ -425,7 +426,7 @@ func handleFrigateIntegration(w http.ResponseWriter, r *http.Request, streamMgr 
 		streams = append(streams, frigateStreamEntry{
 			UUID: c.ID, Name: c.Name, Model: c.Model, Streaming: c.Streaming, RTSPURL: c.RTSPURL, HLSURL: c.HLSURL,
 			PortMappings: streamPortMappings{
-				RTSP: extractPortFromURL(c.RTSPURL, 8554), HLS: extractPortFromURL(c.HLSURL, 8888), Gateway: gatewayPort, RTP: c.RTPPort,
+				RTSP: extractPortFromURL(c.RTSPURL, mediamtx.DefaultRTSPPort), HLS: extractPortFromURL(c.HLSURL, mediamtx.DefaultHTTPPort), Gateway: gatewayPort, RTP: c.RTPPort,
 			},
 		})
 	}
@@ -580,7 +581,7 @@ func handleHomeAssistantIntegration(w http.ResponseWriter, r *http.Request, stre
 			StillImageURL: still, StillImageAvailable: still != nil,
 			VideoCodec: "h264", AudioCodec: "aac",
 			PortMappings: streamPortMappings{
-				RTSP: extractPortFromURL(c.RTSPURL, 8554), HLS: extractPortFromURL(c.HLSURL, 8888), Gateway: gatewayPort, RTP: c.RTPPort,
+				RTSP: extractPortFromURL(c.RTSPURL, mediamtx.DefaultRTSPPort), HLS: extractPortFromURL(c.HLSURL, mediamtx.DefaultHTTPPort), Gateway: gatewayPort, RTP: c.RTPPort,
 			},
 			GenericCamera: g,
 			Controls:      controls,
@@ -693,7 +694,7 @@ func handleStreamsIntegration(w http.ResponseWriter, r *http.Request, streamMgr 
 			RTSPURL: c.RTSPURL, RTSPURLByID: c.RTSPURLByID, HLSURL: c.HLSURL, SnapshotURL: c.SnapshotURL,
 			Transport: transport, VideoCodec: "h264", AudioCodec: "aac",
 			PortMappings: streamPortMappings{
-				RTSP: extractPortFromURL(c.RTSPURL, 8554), HLS: extractPortFromURL(c.HLSURL, 8888), Gateway: gatewayPort, RTP: c.RTPPort,
+				RTSP: extractPortFromURL(c.RTSPURL, mediamtx.DefaultRTSPPort), HLS: extractPortFromURL(c.HLSURL, mediamtx.DefaultHTTPPort), Gateway: gatewayPort, RTP: c.RTPPort,
 			},
 			FreshnessTS: freshness, IP: camIP, MAC: camMAC,
 		}

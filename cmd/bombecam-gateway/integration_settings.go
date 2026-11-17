@@ -277,7 +277,7 @@ func buildIntegrationSettingsView(sm *StreamManager, r *http.Request, pm profile
 	}
 	if locked {
 		// show what is really in use
-		v.Ports.RTSP, v.Ports.HLS, v.Ports.WebRTC = sm.RTSPPort(), sm.HLSPort(), portOfURL(sm.WebRTCBase(), 8889)
+		v.Ports.RTSP, v.Ports.HLS, v.Ports.WebRTC = sm.RTSPPort(), sm.HLSPort(), portOfURL(sm.WebRTCBase(), mediamtx.DefaultWebRTCPort)
 	}
 	if v.Addresses == nil {
 		v.Addresses = []LANAddress{}
@@ -421,7 +421,7 @@ func handleIntegrationSettingsUpdate(w http.ResponseWriter, r *http.Request, sm 
 		seen := map[int]bool{}
 		for _, v := range []int{rt, hl, wr, sn, 8654, mediamtx.DefaultAPIPort} {
 			if seen[v] {
-				bad("Each port must be different (8654 and 9997 are taken by BombeCam itself).")
+				bad(fmt.Sprintf("Each port must be different (8654 and %d are taken by BombeCam itself).", mediamtx.DefaultAPIPort))
 				return
 			}
 			seen[v] = true
@@ -482,7 +482,7 @@ func handleIntegrationSettingsUpdate(w http.ResponseWriter, r *http.Request, sm 
 			return
 		}
 		cfg := sup.Config()
-		if sm.RTSPPort() != cfg.RTSPPort || sm.HLSPort() != cfg.HTTPPort || portOfURL(sm.WebRTCBase(), 8889) != cfg.WebRTCPort {
+		if sm.RTSPPort() != cfg.RTSPPort || sm.HLSPort() != cfg.HTTPPort || portOfURL(sm.WebRTCBase(), mediamtx.DefaultWebRTCPort) != cfg.WebRTCPort {
 			bad("The configured video server addresses differ from the managed server; change its configuration directly.")
 			return
 		}

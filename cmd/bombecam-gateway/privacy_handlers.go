@@ -124,8 +124,9 @@ func desiredBlocked(ps profile.PrivacySettings, id string) bool {
 
 // collectPrivacyCameras lists the enrolled cameras with their MAC addresses
 // and blocking state. A MAC the profile does not know yet is looked up from
-// this PC's ARP table using the camera's LAN address, and remembered.
-func collectPrivacyCameras(ctx context.Context, streamMgr *StreamManager, pm profile.ProfileManager) []privacyCamera {
+// this PC's ARP table using the camera's LAN address; it is returned in learned
+// rather than saved, so a read never writes the profile.
+func collectPrivacyCameras(ctx context.Context, streamMgr *StreamManager, pm profile.ProfileManager) ([]privacyCamera, map[string]string) {
 	var prof *profile.Profile
 	if pm != nil {
 		prof = pm.GetProfile()
@@ -177,17 +178,6 @@ func collectPrivacyCameras(ctx context.Context, streamMgr *StreamManager, pm pro
 			c.Name = id
 		}
 	}
-	if len(learned) > 0 && pm != nil && prof != nil {
-		_, _ = pm.Update(ctx, func(p *profile.Profile) error {
-			for id, mac := range learned {
-				if cam, ok := p.Cameras[id]; ok && cam.MACAddress == "" {
-					cam.MACAddress = mac
-					p.Cameras[id] = cam
-				}
-			}
-			return nil
-		})
-	}
 	var ps profile.PrivacySettings
 	if prof != nil {
 		ps = prof.Privacy
@@ -217,7 +207,24 @@ func collectPrivacyCameras(ctx context.Context, streamMgr *StreamManager, pm pro
 		out = append(out, *c)
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
-	return out
+	return out, learned
+}
+
+// rememberLearnedMACs saves the MACs a listing found in the ARP table. Only a
+// request that is already changing something calls it, so a read never writes.
+func rememberLearnedMACs(ctx context.Context, pm profile.ProfileManager, learned map[string]string) {
+	if pm == nil || len(learned) == 0 {
+		return
+	}
+	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
+		for id, mac := range learned {
+			if cam, ok := p.Cameras[id]; ok && cam.MACAddress == "" {
+				cam.MACAddress = mac
+				p.Cameras[id] = cam
+			}
+		}
+		return nil
+	})
 }
 
 // routerCameras are the cameras the router should block (chosen, MAC known),
@@ -424,8 +431,9 @@ func syncLocalLocked(ctx context.Context, streamMgr *StreamManager, pm profile.P
 	if pm == nil || pm.GetProfile() == nil {
 		return routerOutcome{Code: "not_configured", Message: "Sign in and connect your cameras first."}
 	}
-	cams := collectPrivacyCameras(ctx, streamMgr, pm)
-	ps := pm.GetProfile().Privacy // re-read: MAC learning may have updated it
+	cams, learned := collectPrivacyCameras(ctx, streamMgr, pm)
+	rememberLearnedMACs(ctx, pm, learned)
+	ps := pm.GetProfile().Privacy // re-read: the MACs may just have been saved
 	region := privacyRegion(ps)
 	want := routerCameras(cams)
 	client := newLocalFirewallClient()
@@ -471,8 +479,9 @@ func syncRouterLocked(ctx context.Context, streamMgr *StreamManager, pm profile.
 	if pm == nil || pm.GetProfile() == nil {
 		return routerOutcome{Code: "not_configured", Message: "Sign in and connect your cameras first."}
 	}
-	cams := collectPrivacyCameras(ctx, streamMgr, pm)
-	prof := pm.GetProfile() // re-read: MAC learning may have updated it
+	cams, learned := collectPrivacyCameras(ctx, streamMgr, pm)
+	rememberLearnedMACs(ctx, pm, learned)
+	prof := pm.GetProfile() // re-read: the MACs may just have been saved
 	ps := prof.Privacy
 	region := privacyRegion(ps)
 	want := routerCameras(cams)
@@ -778,7 +787,7 @@ func handlePrivacyStatus(w http.ResponseWriter, r *http.Request, streamMgr *Stre
 }
 
 func privacyStatus(ctx context.Context, streamMgr *StreamManager, pm profile.ProfileManager) map[string]any {
-	cams := collectPrivacyCameras(ctx, streamMgr, pm)
+	cams, _ := collectPrivacyCameras(ctx, streamMgr, pm)
 	var ps profile.PrivacySettings
 	var prof *profile.Profile
 	if pm != nil {
@@ -1046,7 +1055,9 @@ func handlePrivacyCamera(w http.ResponseWriter, r *http.Request, streamMgr *Stre
 		return
 	}
 	found := false
-	for _, c := range collectPrivacyCameras(r.Context(), streamMgr, pm) {
+	cams, learned := collectPrivacyCameras(r.Context(), streamMgr, pm)
+	rememberLearnedMACs(r.Context(), pm, learned)
+	for _, c := range cams {
 		if c.ID == req.CameraID {
 			found = true
 		}
@@ -1084,7 +1095,8 @@ func handlePrivacyBlockAll(w http.ResponseWriter, r *http.Request, streamMgr *St
 }
 
 func setAllBlocked(ctx context.Context, streamMgr *StreamManager, pm profile.ProfileManager, block bool) {
-	cams := collectPrivacyCameras(ctx, streamMgr, pm)
+	cams, learned := collectPrivacyCameras(ctx, streamMgr, pm)
+	rememberLearnedMACs(ctx, pm, learned)
 	_, _ = pm.Update(ctx, func(p *profile.Profile) error {
 		p.Privacy.Blocked = map[string]bool{}
 		for _, c := range cams {
@@ -1237,7 +1249,8 @@ func connectRouter(ctx context.Context, streamMgr *StreamManager, pm profile.Pro
 // over the password (routers that refuse BombeCam's key).
 func applyOverPassword(ctx context.Context, streamMgr *StreamManager, pm profile.ProfileManager, t routerpush.Target, hostKey, hostKeyType string) routerOutcome {
 	t.PinnedHostKey, t.PinnedHostKeyType = hostKey, hostKeyType
-	cams := collectPrivacyCameras(ctx, streamMgr, pm)
+	cams, learned := collectPrivacyCameras(ctx, streamMgr, pm)
+	rememberLearnedMACs(ctx, pm, learned)
 	want := routerCameras(cams)
 	ps := pm.GetProfile().Privacy
 	region := privacyRegion(ps)

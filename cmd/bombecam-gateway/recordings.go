@@ -112,15 +112,14 @@ func cleanRecordings() {
 	}
 }
 
-// StartRecordingCleanup runs a background loop that prunes old segments every
-// interval. It returns a function that stops the loop. Call it only after the
+// StartRecordingCleanup prunes old segments every interval until ctx ends, so
+// the job stops with the gateway that started it. Call it only after the
 // recording root and retention have been set.
-func StartRecordingCleanup(interval time.Duration) func() {
-	ctx, cancel := context.WithCancel(context.Background())
+func StartRecordingCleanup(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Hour
+	}
 	go func() {
-		if interval <= 0 {
-			interval = time.Hour
-		}
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -132,7 +131,6 @@ func StartRecordingCleanup(interval time.Duration) func() {
 			}
 		}
 	}()
-	return cancel
 }
 
 type recordingFile struct {

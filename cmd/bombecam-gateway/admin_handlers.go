@@ -442,11 +442,49 @@ func handleAdminHint(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 }
 
 // A two-step secret waits here between "start" and "confirm"; it is saved
-// only once a code from the app has proved the app has it.
-var pendingTOTP struct {
+// only once a code from the app has proved the app has it. One entry per
+// administrator, so a second window opening the setup does not replace a
+// secret the first one is showing.
+var pendingTOTP pendingSecretStore
+
+// pendingSecretStore holds the two-step secrets waiting for a code.
+type pendingSecretStore struct {
 	sync.Mutex
+	byAdmin map[string]pendingSecret
+}
+
+type pendingSecret struct {
 	secret  string
 	expires time.Time
+}
+
+// put keeps a secret waiting for confirmation until expires.
+func (p *pendingSecretStore) put(admin, secret string, expires time.Time) {
+	p.Lock()
+	defer p.Unlock()
+	if p.byAdmin == nil {
+		p.byAdmin = make(map[string]pendingSecret)
+	}
+	p.byAdmin[admin] = pendingSecret{secret: secret, expires: expires}
+}
+
+// get returns the secret waiting for admin, or "" when none is waiting or it
+// has expired. It stays waiting: a mistyped code must not cost the setup.
+func (p *pendingSecretStore) get(admin string) string {
+	p.Lock()
+	defer p.Unlock()
+	waiting, ok := p.byAdmin[admin]
+	if !ok || time.Now().After(waiting.expires) {
+		return ""
+	}
+	return waiting.secret
+}
+
+// clear forgets any secret waiting for admin.
+func (p *pendingSecretStore) clear(admin string) {
+	p.Lock()
+	defer p.Unlock()
+	delete(p.byAdmin, admin)
 }
 
 // handleAdminTwoStepStart handles POST /api/v1/admin/two-step/start
@@ -476,9 +514,7 @@ func handleAdminTwoStepStart(w http.ResponseWriter, r *http.Request, streamMgr *
 		code.Scale = 6
 		img = "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG())
 	}
-	pendingTOTP.Lock()
-	pendingTOTP.secret, pendingTOTP.expires = secret, time.Now().Add(10*time.Minute)
-	pendingTOTP.Unlock()
+	pendingTOTP.put(admin.Name, secret, time.Now().Add(10*time.Minute))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "secret": secret, "uri": uri, "qr": img})
 }
 
@@ -493,12 +529,12 @@ func handleAdminTwoStepConfirm(w http.ResponseWriter, r *http.Request, streamMgr
 	if !ok {
 		return
 	}
-	pendingTOTP.Lock()
-	secret := pendingTOTP.secret
-	if time.Now().After(pendingTOTP.expires) {
-		secret = ""
+	admin, ok := pm.GetProfile().Admin()
+	if !ok {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "admin_missing"})
+		return
 	}
-	pendingTOTP.Unlock()
+	secret := pendingTOTP.get(admin.Name)
 	if secret == "" {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "not_started", "message": "Start again: the setup expired."})
 		return
@@ -524,9 +560,9 @@ func handleAdminTwoStepConfirm(w http.ResponseWriter, r *http.Request, streamMgr
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "save_failed", "message": err.Error()})
 		return
 	}
-	pendingTOTP.Lock()
-	pendingTOTP.secret = ""
-	pendingTOTP.Unlock()
+	if admin, ok := pm.GetProfile().Admin(); ok {
+		pendingTOTP.clear(admin.Name)
+	}
 	fmt.Println("[admin] two-step sign-in turned on")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "recovery_codes": codes})
 }

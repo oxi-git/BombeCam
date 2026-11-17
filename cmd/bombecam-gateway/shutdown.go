@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -18,6 +19,21 @@ var (
 // requestShutdown asks main to shut down. Safe to call more than once.
 func requestShutdown() {
 	shutdownOnce.Do(func() { close(shutdownRequested) })
+}
+
+// shutdownContext ends when the gateway is asked to shut down, so background
+// jobs started at startup stop with it instead of running until the process
+// ends.
+func shutdownContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-shutdownRequested:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx
 }
 
 // shutdownDelay lets the reply reach the browser before the server stops.

@@ -1273,11 +1273,6 @@ func (mc *ManagedCamera) device() bridge.Device {
 	return bridge.Device{UUID: mc.UUID, Name: mc.Name, Type: mc.Model}
 }
 
-// deviceLocked is device for a caller already holding mc.mu.
-func (mc *ManagedCamera) deviceLocked() bridge.Device {
-	return bridge.Device{UUID: mc.UUID, Name: mc.Name, Type: mc.Model}
-}
-
 // SetRetryMaxWait sets the longest automatic retry wait (0 = default).
 func (sm *StreamManager) SetRetryMaxWait(d time.Duration) {
 	sm.mu.Lock()
@@ -1294,6 +1289,33 @@ func (sm *StreamManager) RetryMaxWait() time.Duration {
 	}
 	return sm.retryMaxWait
 }
+
+// The waits a stream makes, named so their reason is written once rather than
+// guessed from a bare literal at each call site.
+const (
+	// waitForCameraLogin is how long a camera without a signed-in login waits
+	// before looking again; startup signs logins in alongside the stream loop.
+	waitForCameraLogin = 2 * time.Second
+	// waitBeforeRetry follows a stream that ended in an error the session may
+	// retry, so a camera that is rebooting is not hammered.
+	waitBeforeRetry = 3 * time.Second
+	// waitAfterCleanEnd follows a stream that ended without error (the camera
+	// dropped it), long enough for it to finish closing on its side.
+	waitAfterCleanEnd = 2 * time.Second
+	// videoCallRetry and videoCallRetry2 back off a camera that is already
+	// answering another call, giving it time to drop it.
+	videoCallRetry  = 3 * time.Second
+	videoCallRetry2 = 5 * time.Second
+	// switchResend is how often the playback quality is re-asserted on a
+	// healthy stream, since the camera forgets it after some events.
+	switchResend = 20 * time.Second
+	// stallWatch is how often the stream is checked for having stopped
+	// delivering packets.
+	stallWatch = 2 * time.Second
+	// firstAttributePoll lets the camera finish its video handshake before
+	// the switches are read, or the message races the call setup.
+	firstAttributePoll = 1 * time.Second
+)
 
 // defaultRunner implements the real camera stream loop with recovery budget and lockout handling.
 func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, rtpPort int) {
@@ -1346,7 +1368,7 @@ func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, r
 
 		if c == nil {
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(waitForCameraLogin):
 				continue
 			case <-ctx.Done():
 				return
@@ -1372,9 +1394,9 @@ func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, r
 				session.mu.Lock()
 				rem := session.RecoveryBudget
 				session.mu.Unlock()
-				fmt.Printf("[%s] stream ended: %v (budget remaining: %d/3, restarting in 3s)...\n", mc.Name, err, rem)
+				fmt.Printf("[%s] stream ended: %v (budget remaining: %d/3, restarting in %s)...\n", mc.Name, err, rem, waitBeforeRetry)
 				select {
-				case <-time.After(3 * time.Second):
+				case <-time.After(waitBeforeRetry):
 				case <-ctx.Done():
 					return
 				}
@@ -1387,9 +1409,9 @@ func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, r
 			}
 			session.RecordSuccess()
 			lockouts = 0
-			fmt.Printf("[%s] stream session ended cleanly (restarting in 2s)...\n", mc.Name)
+			fmt.Printf("[%s] stream session ended cleanly (restarting in %s)...\n", mc.Name, waitAfterCleanEnd)
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(waitAfterCleanEnd):
 			case <-ctx.Done():
 				return
 			}
@@ -1411,17 +1433,17 @@ func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *b
 
 	vc, err := c.VideoCall(dev.UUID)
 	if err != nil {
-		fmt.Printf("[%s] videocall busy/failed: %v, retrying in 3s...\n", dev.Name, err)
+		fmt.Printf("[%s] videocall busy/failed: %v, retrying in %s...\n", dev.Name, err, videoCallRetry)
 		select {
-		case <-time.After(3 * time.Second):
+		case <-time.After(videoCallRetry):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 		vc, err = c.VideoCall(dev.UUID)
 		if err != nil {
-			fmt.Printf("[%s] videocall retry 2 failed: %v, retrying in 5s...\n", dev.Name, err)
+			fmt.Printf("[%s] videocall retry 2 failed: %v, retrying in %s...\n", dev.Name, err, videoCallRetry2)
 			select {
-			case <-time.After(5 * time.Second):
+			case <-time.After(videoCallRetry2):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -1502,13 +1524,17 @@ func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *b
 				if pm.GetProfile() == nil {
 					return
 				}
-				_, _ = pm.Update(context.Background(), func(p *profile.Profile) error {
+				// The Firewall tab looks the camera's MAC up by this address,
+				// so a write that never lands leaves it searching for nothing.
+				if _, err := pm.Update(context.Background(), func(p *profile.Profile) error {
 					if cam, ok := p.Cameras[camUUID]; ok {
 						cam.IPAddress = ipStr
 						p.Cameras[camUUID] = cam
 					}
 					return nil
-				})
+				}); err != nil {
+					fmt.Printf("[%s] could not save the camera's LAN address %s: %v\n", dev.Name, ipStr, err)
+				}
 			}(dev.UUID)
 		}
 	}
@@ -1593,17 +1619,17 @@ func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *b
 			return
 		case <-ctx.Done():
 			return
-		case <-time.After(1 * time.Second):
+		case <-time.After(firstAttributePoll):
 		}
 		if !severed.Load() {
 			_ = sig.Send("atr.get", []string{"IrLedMode", "LedOnOff", "MotionDetectSW", "SoundDetectSW"})
 		}
 	}()
 
-	switchTicker := time.NewTicker(20 * time.Second)
+	switchTicker := time.NewTicker(switchResend)
 	defer switchTicker.Stop()
 
-	watchdog := time.NewTicker(2 * time.Second)
+	watchdog := time.NewTicker(stallWatch)
 	defer watchdog.Stop()
 
 	for {

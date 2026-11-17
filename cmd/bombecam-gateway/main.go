@@ -343,15 +343,15 @@ func main() {
 	deviceSel := flag.String("device", getEnvOrDefault("OSAIO_DEVICE", ""), "camera uuid (default: none, selective enrollment via API)")
 	enrolledF := flag.String("enrolled", getEnvOrDefault("OSAIO_ENROLLED", ""), "comma-separated list of enrolled camera UUIDs")
 	ffmpeg := flag.String("ffmpeg", getEnvOrDefault("FFMPEG_PATH", "ffmpeg"), "path to ffmpeg")
-	rtspBase := flag.String("rtsp-base", getEnvOrDefault("OSAIO_RTSP_BASE", "rtsp://127.0.0.1:8554"), "mediamtx RTSP base (or env OSAIO_RTSP_BASE)")
-	publishRTSPBase := flag.String("publish-rtsp-base", getEnvFirst([]string{"BOMBECAM_RTSP_PUBLISH_BASE", "OSAIO_RTSP_PUBLISH_BASE"}, "rtsp://127.0.0.1:8554"), "Internal MediaMTX RTSP publishing target for FFmpeg (default: rtsp://127.0.0.1:8554)")
+	rtspBase := flag.String("rtsp-base", getEnvOrDefault("OSAIO_RTSP_BASE", fmt.Sprintf("rtsp://127.0.0.1:%d", mediamtx.DefaultRTSPPort)), "mediamtx RTSP base (or env OSAIO_RTSP_BASE)")
+	publishRTSPBase := flag.String("publish-rtsp-base", getEnvFirst([]string{"BOMBECAM_RTSP_PUBLISH_BASE", "OSAIO_RTSP_PUBLISH_BASE"}, fmt.Sprintf("rtsp://127.0.0.1:%d", mediamtx.DefaultRTSPPort)), "Internal MediaMTX RTSP publishing target for FFmpeg (default: rtsp://127.0.0.1:"+strconv.Itoa(mediamtx.DefaultRTSPPort)+")")
 	consumerRTSPBase := flag.String("consumer-rtsp-base", getEnvFirst([]string{"BOMBECAM_RTSP_CONSUMER_BASE", "OSAIO_ADVERTISED_RTSP_BASE"}, ""), "External consumer RTSP base for LAN consumers/NVRs (default: auto-derived from Host header)")
 	consumerHLSBase := flag.String("consumer-hls-base", getEnvFirst([]string{"BOMBECAM_HLS_CONSUMER_BASE", "OSAIO_ADVERTISED_HLS_BASE"}, ""), "External consumer HLS base for LAN consumers (default: auto-derived from Host header)")
-	hlsBase := flag.String("hls-base", getEnvOrDefault("OSAIO_HLS_BASE", "http://127.0.0.1:8888"), "mediamtx HLS base (or env OSAIO_HLS_BASE)")
-	webrtcBase := flag.String("webrtc-base", getEnvOrDefault("BOMBECAM_WEBRTC_BASE", "http://127.0.0.1:8889"), "mediamtx WebRTC/WHEP base (or env BOMBECAM_WEBRTC_BASE)")
+	hlsBase := flag.String("hls-base", getEnvOrDefault("OSAIO_HLS_BASE", fmt.Sprintf("http://127.0.0.1:%d", mediamtx.DefaultHTTPPort)), "mediamtx HLS base (or env OSAIO_HLS_BASE)")
+	webrtcBase := flag.String("webrtc-base", getEnvOrDefault("BOMBECAM_WEBRTC_BASE", fmt.Sprintf("http://127.0.0.1:%d", mediamtx.DefaultWebRTCPort)), "mediamtx WebRTC/WHEP base (or env BOMBECAM_WEBRTC_BASE)")
 	mediamtxPathFlag := flag.String("mediamtx-path", getEnvOrDefault("BOMBECAM_MEDIAMTX_PATH", ""), "path to mediamtx binary; empty auto-resolves")
 	mediamtxConfigFlag := flag.String("mediamtx-config", getEnvOrDefault("BOMBECAM_MEDIAMTX_CONFIG", ""), "custom mediamtx.yml (default: a built-in configuration generated on each launch)")
-	mediamtxAPIFlag := flag.String("mediamtx-api", getEnvOrDefault("BOMBECAM_MEDIAMTX_API", "http://127.0.0.1:9997"), "MediaMTX management API base URL")
+	mediamtxAPIFlag := flag.String("mediamtx-api", getEnvOrDefault("BOMBECAM_MEDIAMTX_API", fmt.Sprintf("http://127.0.0.1:%d", mediamtx.DefaultAPIPort)), "MediaMTX management API base URL")
 	publisherFlag := flag.String("publisher", getEnvOrDefault("BOMBECAM_PUBLISHER", "auto"), "how camera media reaches MediaMTX: auto/native (built-in, default) or ffmpeg (legacy FFmpeg pipeline)")
 	noSupervisorEnv := strings.ToLower(getEnvOrDefault("BOMBECAM_NO_MEDIAMTX_SUPERVISOR", "false"))
 	noMediamtxSupervisorFlag := flag.Bool("no-mediamtx-supervisor", noSupervisorEnv == "true" || noSupervisorEnv == "1" || noSupervisorEnv == "yes", "disable automatic MediaMTX supervisor")
@@ -367,9 +367,9 @@ func main() {
 	timezoneFlag := flag.String("timezone", getEnvOrDefault("OSAIO_TIMEZONE", ""), "Account timezone name (e.g. America/New_York); empty auto-detects local timezone")
 	zoneOffsetFlag := flag.String("timezone-offset", getEnvOrDefault("OSAIO_ZONE_OFFSET", ""), "Account timezone offset hours (e.g. -5, 0, 5.5); empty auto-detects local offset")
 	mosquittoURLFlag := flag.String("mosquitto-url", getEnvOrDefault("MOSQUITTO_URL", "tcp://127.0.0.1:1883"), "Mosquitto broker URL for local shadow shim")
-	rtspPortFlag := flag.Int("rtsp-port", envInt("BOMBECAM_RTSP_PORT", 0), "RTSP port for the built-in MediaMTX (default 8554, or the port chosen in the web UI)")
-	hlsPortFlag := flag.Int("hls-port", envInt("BOMBECAM_HLS_PORT", 0), "HLS port for the built-in MediaMTX (default 8888)")
-	webrtcPortFlag := flag.Int("webrtc-port", envInt("BOMBECAM_WEBRTC_PORT", 0), "WebRTC port for the built-in MediaMTX (default 8889)")
+	rtspPortFlag := flag.Int("rtsp-port", envInt("BOMBECAM_RTSP_PORT", 0), "RTSP port for the built-in MediaMTX (default "+strconv.Itoa(mediamtx.DefaultRTSPPort)+", or the port chosen in the web UI)")
+	hlsPortFlag := flag.Int("hls-port", envInt("BOMBECAM_HLS_PORT", 0), "HLS port for the built-in MediaMTX (default "+strconv.Itoa(mediamtx.DefaultHTTPPort)+")")
+	webrtcPortFlag := flag.Int("webrtc-port", envInt("BOMBECAM_WEBRTC_PORT", 0), "WebRTC port for the built-in MediaMTX (default "+strconv.Itoa(mediamtx.DefaultWebRTCPort)+")")
 	webrtcUDPPortFlag := flag.Int("webrtc-udp-port", envInt("BOMBECAM_WEBRTC_UDP_PORT", 0), "WebRTC media UDP port for the built-in MediaMTX (default 8189)")
 	recordingsDirFlag := flag.String("recordings-dir", getEnvOrDefault("BOMBECAM_RECORDINGS_DIR", ""), "directory to record published streams to (one subfolder per stream); empty disables recording")
 	recordingsRetentionFlag := flag.Int("recordings-retention-days", envInt("BOMBECAM_RECORDINGS_RETENTION_DAYS", 0), "delete recorded segments older than this many days (0 keeps everything)")
@@ -467,7 +467,7 @@ func main() {
 	if *recordingsDirFlag != "" && *recordingsRetentionFlag > 0 {
 		// Prune once immediately, then on the interval.
 		go cleanRecordings()
-		StartRecordingCleanup(*recordingsCleanupFlag)
+		StartRecordingCleanup(shutdownContext(), *recordingsCleanupFlag)
 	}
 
 	// The data folder holds the profile, operator tokens and the saved server key and app ID.
