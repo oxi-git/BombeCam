@@ -583,10 +583,21 @@ func repliesTo(sent, got string) bool {
 // It runs before OnMsg, which may block and switch the camera.
 func (s *Signaling) answerCmdLocked(conn *websocket.Conn, m wsMsg) {
 	q := s.cmdQueries[m.MsgID]
-	if q == nil || q.conn != conn || conn != s.conn || m.UUID != q.camera {
+	if q == nil {
+		return
+	}
+	// A reply that cannot be matched is otherwise indistinguishable from a
+	// camera that never answered, so say which check it failed.
+	if q.conn != conn || conn != s.conn {
+		fmt.Printf("[ws] %s id=%s dropped: reply came on another connection\n", m.Method, m.MsgID)
+		return
+	}
+	if m.UUID != q.camera {
+		fmt.Printf("[ws] %s id=%s dropped: uuid %q is not the queried camera %q\n", m.Method, m.MsgID, m.UUID, q.camera)
 		return
 	}
 	if !repliesTo(q.method, m.Method) {
+		fmt.Printf("[ws] %s id=%s dropped: it does not answer %s\n", m.Method, m.MsgID, q.method)
 		return
 	}
 	select {
