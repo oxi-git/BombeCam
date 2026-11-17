@@ -215,21 +215,13 @@ func handleCameraControl(w http.ResponseWriter, r *http.Request, camID string, s
 	case "ptz", "set_ptz":
 		dir := 0
 		dur := 400
+		// The same spelling the legacy /ptz route accepts, read in one place.
 		rawDir := resolveParam(req.Direction, req.Value, "direction", "value")
 		if rawDir != nil {
 			switch v := rawDir.(type) {
 			case string:
-				switch strings.ToLower(strings.TrimSpace(v)) {
-				case "left", "1":
-					dir = 1
-				case "right", "2":
-					dir = 2
-				case "up", "top", "3":
-					dir = 3
-				case "down", "bottom", "4":
-					dir = 4
-				case "stop", "0", "":
-					dir = 0
+				if d, ok := ptzDirection(v); ok {
+					dir = d
 				}
 			case float64:
 				dir = int(v)
@@ -540,32 +532,41 @@ func handleSDCardPlayback(w http.ResponseWriter, r *http.Request, camID string, 
 	handleSDCardInfo(w, r, camID, streamMgr)
 }
 
-// handleTalkStart handles POST /api/v1/cameras/{id}/talk/start
-func handleTalkStart(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
-	mc, ok := streamMgr.GetCamera(camID)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
-		return
-	}
-
+// armTalk turns the camera's talkback on or off. With a live media session it
+// goes through the viewer, which is the only path that carries audio; without
+// one it arms the control channel, which is all a firewall backend can do.
+// It answers in the common shape and reports whether the camera replied.
+func armTalk(w http.ResponseWriter, r *http.Request, mc *ManagedCamera, active bool) {
 	mc.mu.RLock()
 	viewer := mc.Viewer
 	mc.mu.RUnlock()
 
 	cc := GatewayControlChannel()
+	answered := false
 	if viewer != nil {
-		ret, err := viewer.SetTalk(true)
+		ret, err := viewer.SetTalk(active)
 		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": fmt.Sprintf("failed to start talk: %v", err)})
+			action := "stop"
+			if active {
+				action = "start"
+			}
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": fmt.Sprintf("failed to %s talk: %v", action, err)})
 			return
 		}
-		if ret != 0 {
+		if active && ret != 0 {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": fmt.Sprintf("the camera refused talkback (code %d); it may already be in a call from the vendor app", ret)})
 			return
 		}
+		answered = true
+		if active {
+			answered, _, _, _, _ = viewer.TalkDiagnostics()
+		}
 	} else if cc != nil {
-		sessionID := fmt.Sprintf("session-%s-%d", camID, time.Now().Unix())
-		if err := cc.ArmTalk(r.Context(), camID, true, sessionID); err != nil {
+		sessionID := ""
+		if active {
+			sessionID = fmt.Sprintf("session-%s-%d", mc.UUID, time.Now().Unix())
+		}
+		if err := cc.ArmTalk(r.Context(), mc.UUID, active, sessionID); err != nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": fmt.Sprintf("failed to arm talk: %v", err)})
 			return
 		}
@@ -574,17 +575,23 @@ func handleTalkStart(w http.ResponseWriter, r *http.Request, camID string, strea
 		return
 	}
 
-	answered := true
-	if viewer != nil {
-		answered, _, _, _, _ = viewer.TalkDiagnostics()
-	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":              true,
 		"camera":          mc.Name,
 		"uuid":            mc.UUID,
-		"talk_active":     true,
+		"talk_active":     active,
 		"camera_answered": answered,
 	})
+}
+
+// handleTalkStart handles POST /api/v1/cameras/{id}/talk/start
+func handleTalkStart(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
+	mc, ok := streamMgr.GetCamera(camID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
+		return
+	}
+	armTalk(w, r, mc, true)
 }
 
 // handleTalkStop handles POST /api/v1/cameras/{id}/talk/stop
@@ -594,33 +601,7 @@ func handleTalkStop(w http.ResponseWriter, r *http.Request, camID string, stream
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-
-	mc.mu.RLock()
-	viewer := mc.Viewer
-	mc.mu.RUnlock()
-
-	cc := GatewayControlChannel()
-	if viewer != nil {
-		if _, err := viewer.SetTalk(false); err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": fmt.Sprintf("failed to stop talk: %v", err)})
-			return
-		}
-	} else if cc != nil {
-		if err := cc.ArmTalk(r.Context(), camID, false, ""); err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": fmt.Sprintf("failed to disarm talk: %v", err)})
-			return
-		}
-	} else {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "camera not found or media session not active"})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"camera":      mc.Name,
-		"uuid":        mc.UUID,
-		"talk_active": false,
-	})
+	armTalk(w, r, mc, false)
 }
 
 // handleTalkStream handles POST /api/v1/cameras/{id}/talk/stream

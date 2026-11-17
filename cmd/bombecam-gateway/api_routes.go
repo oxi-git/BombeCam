@@ -942,79 +942,31 @@ func handleLegacyCommand(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleLegacyTalkStart arms talk on the camera's media session. Without a live
-// viewer it arms the control channel instead, which is all a firewall backend
-// can do.
+// handleLegacyTalkStart arms talk on the camera named by ?cam, through the
+// same armTalk the REST route uses.
 func handleLegacyTalkStart(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if !allowLegacyPost(w, r) {
 		return
 	}
-	cam := r.URL.Query().Get("cam")
-	target := findSignaling(cam)
-	if target == nil || target.viewer == nil {
-		answerArmTalk(w, r, cam, true)
+	mc, ok := streamMgr.ResolveCamera(r.URL.Query().Get("cam"))
+	if !ok {
+		http.Error(w, "camera not found", http.StatusNotFound)
 		return
 	}
-	ret, err := target.viewer.SetTalk(true)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to start talk: %v", err), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"camera":      target.dev.Name,
-		"uuid":        target.dev.UUID,
-		"talk_active": true,
-		"ret":         ret,
-	})
+	armTalk(w, r, mc, true)
 }
 
+// handleLegacyTalkStop disarms talk on the camera named by ?cam.
 func handleLegacyTalkStop(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if !allowLegacyPost(w, r) {
 		return
 	}
-	cam := r.URL.Query().Get("cam")
-	target := findSignaling(cam)
-	if target == nil || target.viewer == nil {
-		answerArmTalk(w, r, cam, false)
+	mc, ok := streamMgr.ResolveCamera(r.URL.Query().Get("cam"))
+	if !ok {
+		http.Error(w, "camera not found", http.StatusNotFound)
 		return
 	}
-	ret, err := target.viewer.SetTalk(false)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to stop talk: %v", err), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"camera":      target.dev.Name,
-		"uuid":        target.dev.UUID,
-		"talk_active": false,
-		"ret":         ret,
-	})
-}
-
-// answerArmTalk arms or disarms talk through the control channel, the fallback
-// when the camera has no live media session.
-func answerArmTalk(w http.ResponseWriter, r *http.Request, cam string, active bool) {
-	cc := GatewayControlChannel()
-	if cc == nil || cam == "" {
-		http.Error(w, "camera not found or media session not active", http.StatusServiceUnavailable)
-		return
-	}
-	sessionID := ""
-	if active {
-		sessionID = fmt.Sprintf("session-%s-%d", cam, time.Now().Unix())
-	}
-	if err := cc.ArmTalk(r.Context(), cam, active, sessionID); err != nil {
-		controlFailed(w, "arm talk", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"camera":      cam,
-		"uuid":        cam,
-		"talk_active": active,
-	})
+	armTalk(w, r, mc, false)
 }
 
 func handleLegacyTalkStream(w http.ResponseWriter, r *http.Request) {
