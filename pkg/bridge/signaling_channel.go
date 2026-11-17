@@ -312,6 +312,41 @@ func (s *SignalingControlChannel) GetRecordDays(ctx context.Context, cameraUUID 
 	return s.atrGet(ctx, cameraUUID, "RecordDays")
 }
 
+// GetLocalVideoTime lists the recordings of one day on the card. start and
+// duration are in seconds from midnight; the camera answers with chunk start
+// times and lengths, the recording list the Osaio app shows.
+//
+// Evidence: yripc/websocket/WebSocketHandlerKt.java:16,40 (the message and its
+// response), YRPlayerComponentViewModel.java:618-623 (payload), :641-646
+// (parse). The reply is response.GetLocalVideoTimeResp, an envelope different
+// from atr.get, so it is asked and unwrapped on its own.
+func (s *SignalingControlChannel) GetLocalVideoTime(ctx context.Context, cameraUUID string, start, duration int) (map[string]any, error) {
+	sig, err := s.getSig(cameraUUID)
+	if err != nil {
+		return nil, err
+	}
+	payload := map[string]any{"Start": start, "Duration": duration, "Order": 0, "Limited": 0}
+	reply, err := sig.QueryCommand(ctx, cameraUUID, "service.GetLocalVideoTime", payload)
+	if err != nil {
+		return nil, fmt.Errorf("get local video time failed: %w", err)
+	}
+	body, ok := reply.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("local video time reply is not an object: %T", reply)
+	}
+	// Unwrap the response envelope; leave an already-flat reply alone.
+	if resp, ok := body["response.GetLocalVideoTimeResp"].(map[string]any); ok {
+		if data, ok := resp["data"].(map[string]any); ok {
+			return data, nil
+		}
+		return resp, nil
+	}
+	if data, ok := body["data"].(map[string]any); ok {
+		return data, nil
+	}
+	return body, nil
+}
+
 // atrGet asks for one key the way the Osaio app does: atr.get with the key
 // names as the payload (WebSocketHandler.getAllSettingAttribute lists
 // SdCardInfo among them, and WebSocketApi.getAtr sends the cmd object as-is).

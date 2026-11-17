@@ -331,6 +331,7 @@ func handleCameraShadow(w http.ResponseWriter, r *http.Request, camID string, st
 type sdcardFetcher interface {
 	GetSDCardInfo(ctx context.Context, cameraUUID string) (map[string]any, error)
 	GetRecordDays(ctx context.Context, cameraUUID string) (map[string]any, error)
+	GetLocalVideoTime(ctx context.Context, cameraUUID string, start, duration int) (map[string]any, error)
 }
 
 func sdcardChannel(cc bridge.ControlChannel) (sdcardFetcher, bool) {
@@ -405,6 +406,28 @@ func sdcardNumber(raw map[string]any, keys ...string) (float64, bool) {
 	return 0, false
 }
 
+// sdcardNumbers finds a list value, tolerating the same extra nesting and
+// accepting numbers written as strings, which is how some firmware sends them.
+func sdcardNumbers(raw map[string]any, keys ...string) ([]float64, bool) {
+	v, ok := sdcardField(raw, keys...)
+	if !ok {
+		return nil, false
+	}
+	list, ok := v.([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([]float64, 0, len(list))
+	for _, item := range list {
+		n, ok := sdcardNumber(map[string]any{"v": item}, "v")
+		if !ok {
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	return out, true
+}
+
 func sdcardContext(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(r.Context(), 5*time.Second)
 }
@@ -472,7 +495,46 @@ func handleSDCardRecordings(w http.ResponseWriter, r *http.Request, camID string
 	writeJSON(w, http.StatusOK, out)
 }
 
-// handleCameraCloudDays handles GET /api/v1/cameras/{id}/cloud/days?month=YYYY-MM
+// handleSDCardVideos handles GET /api/v1/cameras/{id}/sdcard/videos?day=YYYY-MM-DD
+// and lists the recordings the card holds for that day.
+func handleSDCardVideos(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
+	if _, ok := streamMgr.GetCamera(camID); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
+		return
+	}
+	fetcher, ok := sdcardChannel(cameraSignalingControl(streamMgr, camID))
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "sdcard_unavailable", "message": "The camera is not connected over its control channel. Start a stream, then try again."})
+		return
+	}
+	day := r.URL.Query().Get("day")
+	if day == "" {
+		day = time.Now().Format("2006-01-02")
+	}
+	if _, err := time.Parse("2006-01-02", day); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_day", "message": `Send day=YYYY-MM-DD.`})
+		return
+	}
+	// A whole day, from midnight: the shape the Osaio app asks with.
+	ctx, cancel := sdcardContext(r)
+	defer cancel()
+	raw, err := fetcher.GetLocalVideoTime(ctx, camID, 0, 24*60*60)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "sdcard_unavailable", "message": err.Error()})
+		return
+	}
+	starts, _ := sdcardNumbers(raw, "ChunkStart", "chunk_start")
+	lengths, _ := sdcardNumbers(raw, "ChunkLength", "chunk_length")
+	videos := make([]map[string]any, 0, len(starts))
+	for i, s := range starts {
+		v := map[string]any{"start": int(s)}
+		if i < len(lengths) {
+			v["length"] = int(lengths[i])
+		}
+		videos = append(videos, v)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"day": day, "videos": videos, "raw": raw})
+}
 func handleCameraCloudDays(w http.ResponseWriter, r *http.Request, camID, month string, streamMgr *StreamManager) {
 	if _, ok := streamMgr.GetCamera(camID); !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})

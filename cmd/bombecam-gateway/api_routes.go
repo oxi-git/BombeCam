@@ -470,6 +470,9 @@ func handleCameraRoute(w http.ResponseWriter, r *http.Request, camID string, par
 	case len(parts) == 3 && parts[1] == "sdcard" && parts[2] == "recordings" && get:
 		handleSDCardRecordings(w, r, camID, streamMgr)
 
+	case len(parts) == 3 && parts[1] == "sdcard" && parts[2] == "videos" && get:
+		handleSDCardVideos(w, r, camID, streamMgr)
+
 	case len(parts) == 3 && parts[1] == "cloud" && parts[2] == "days" && get:
 		handleCameraCloudDays(w, r, camID, r.URL.Query().Get("month"), streamMgr)
 

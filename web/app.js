@@ -3312,19 +3312,42 @@ async function renderSDCard(el, camPath, esc) {
       '<span class="port-desc">' + esc(await errorMessageOf(daysRes, 'Could not read the SD card record days.')) + '</span></div>');
   } else {
     const d = await daysRes.json();
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const today = SDDateKey(now);
+    const monthName = m => new Date(2000, m - 1, 1).toLocaleString(undefined, { month: 'long' });
+    // The camera names a month without a year ("11") and a day without either
+    // ("14"); a day number in the previous month that is larger than today's
+    // belongs to last year.
+    const monthYear = (month, latest) => {
+      let y = now.getFullYear();
+      if (month > now.getMonth() + 1) y -= 1;
+      const days = latest.filter(day => day > now.getDate()).length;
+      if (month === now.getMonth() && days > 0 && latest.length > 0) y = y;
+      return y;
+    };
+    const entries = [];
     for (const [month, field] of [[d.cur_month, 'cur_days'], [d.prev_month, 'prev_days']]) {
-      const dates = String(d[field] || '').split(',').map(s => s.trim()).filter(Boolean).map(day => {
-        if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return day;
-        if (/^\d{4}-\d{2}$/.test(String(month)) && /^\d{1,2}$/.test(day)) return String(month) + '-' + day.padStart(2, '0');
-        return day;
-      });
-      for (const date of dates) {
-        rows.push('<div class="port-item">' +
-          '<span class="port-name">' + esc(date) + '</span>' +
-          '<span class="port-desc">On the SD card' + (date === today ? ' &middot; today' : '') + '</span>' +
-          '</div>');
+      const mn = Number(month);
+      if (!mn) continue;
+      const days = String(d[field] || '').split(',').map(s => s.trim()).filter(Boolean)
+        .map(Number).filter(n => n > 0).sort((a, b) => a - b);
+      const year = monthYear(mn, days);
+      for (const day of days) {
+        entries.push({ key: year + '-' + String(mn).padStart(2, '0') + '-' + String(day).padStart(2, '0'),
+          label: monthName(mn) + ' ' + day + ', ' + year, monthLabel: monthName(mn) + ' ' + year });
       }
+    }
+    entries.sort((a, b) => (a.key < b.key ? 1 : -1));
+    let lastMonth = null;
+    for (const e of entries) {
+      if (e.monthLabel !== lastMonth) {
+        lastMonth = e.monthLabel;
+        rows.push('<div class="port-item"><span class="port-name">' + esc(e.monthLabel) + '</span>' +
+          '<span class="port-desc">On the SD card</span></div>');
+      }
+      rows.push('<div class="port-item port-day" data-date="' + esc(e.key) + '">' +
+        '<span class="port-name">' + esc(e.label) + '</span>' +
+        '<span class="port-desc">' + (e.key === today ? 'Today' : 'Recorded') + '</span></div>');
     }
     if (rows.length === 0) {
       rows.push('<div class="port-item"><span class="port-name">Days with recordings</span>' +
