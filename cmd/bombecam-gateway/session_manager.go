@@ -307,7 +307,7 @@ func (sm *SessionManager) Reset() {
 // deviceListSetting returns a camera setting from the Osaio device list of
 // whichever signed-in login lists the camera.
 func deviceListSetting(uuid, key string) (any, bool) {
-	reg := GatewaySessions()
+	reg := currentStreamManager().Registry()
 	if reg == nil {
 		return nil, false
 	}

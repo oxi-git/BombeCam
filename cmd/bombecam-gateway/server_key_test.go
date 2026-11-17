@@ -80,11 +80,14 @@ func TestServerKeyChangeRecoversSessions(t *testing.T) {
 	template := NewSessionManager("1", "code", keys)
 	template.Cloud().Web, template.Cloud().GlobalBase = srv.URL, srv.URL
 	reg := NewSessionRegistry(template, "1", "code", keys)
-	SetGatewaySessions(reg)
-	defer SetGatewaySessions(nil)
 	sm := reg.Ensure("me@example.com") // the login's own session
 	c := sm.Cloud()
 	streamMgr := NewStreamManager(c, "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "")
+	streamMgr.SetSessionRegistry(reg)
+	defer streamMgr.SetSessionRegistry(nil)
+	streamMgr.SetProfileManager(pm)
+	setCurrentStreamManager(streamMgr)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
 	streamMgr.SetLoginRenewer(renewCloudLogin)
 
 	// With the old key, sign-in is refused and named as possibly a key problem.
@@ -197,10 +200,13 @@ func TestAppIDChangeRecoversSessions(t *testing.T) {
 	template := NewSessionManager("1", "code", keys)
 	template.Cloud().Web, template.Cloud().GlobalBase = srv.URL, srv.URL
 	reg := NewSessionRegistry(template, "1", "code", keys)
-	SetGatewaySessions(reg)
-	defer SetGatewaySessions(nil)
 	sm := reg.Ensure("me@example.com")
 	streamMgr := NewStreamManager(sm.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "")
+	streamMgr.SetSessionRegistry(reg)
+	defer streamMgr.SetSessionRegistry(nil)
+	streamMgr.SetProfileManager(pm)
+	setCurrentStreamManager(streamMgr)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
 
 	if err := sm.Login("me@example.com", "secret"); err == nil {
 		t.Fatal("the old app ID was accepted")

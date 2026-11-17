@@ -273,33 +273,3 @@ func (r *SessionRegistry) FindDevice(uuid string) (bridge.Device, *SessionManage
 	}
 	return bridge.Device{}, nil, false
 }
-
-// sessionsFor returns the login pool made from template, creating it when the
-// gateway has none for it yet.
-func sessionsFor(template *SessionManager) *SessionRegistry {
-	if reg := GatewaySessions(); reg != nil && reg.Template() == template {
-		return reg
-	}
-	reg := NewSessionRegistry(template, template.Country(), template.PhoneCode(), nil)
-	SetGatewaySessions(reg)
-	return reg
-}
-
-var (
-	gwSessionsMu sync.RWMutex
-	gwSessions   *SessionRegistry
-)
-
-// SetGatewaySessions installs the process-wide session registry.
-func SetGatewaySessions(r *SessionRegistry) {
-	gwSessionsMu.Lock()
-	defer gwSessionsMu.Unlock()
-	gwSessions = r
-}
-
-// GatewaySessions returns the process-wide session registry (may be nil early in startup).
-func GatewaySessions() *SessionRegistry {
-	gwSessionsMu.RLock()
-	defer gwSessionsMu.RUnlock()
-	return gwSessions
-}

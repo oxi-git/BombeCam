@@ -76,6 +76,9 @@ func TestGateway_FirstRunDetection(t *testing.T) {
 
 	sm := NewSessionManager("1", "phone-1", testServerKey)
 	stm := NewStreamManager(sm.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
+	stm.SetSessionRegistry(NewSessionRegistry(sm, sm.Country(), sm.PhoneCode(), testServerKey))
+	setCurrentStreamManager(stm)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
 
 	runGatewayStartup(sm, stm, "", "", "", "", "", "127.0.0.1:8654")
 
@@ -104,17 +107,20 @@ func TestGateway_FirstRunBootstrap(t *testing.T) {
 	sm.Cloud().Web = serverURL
 	sm.Cloud().GlobalBase = serverURL
 	stm := NewStreamManager(sm.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
+	stm.SetSessionRegistry(NewSessionRegistry(sm, sm.Country(), sm.PhoneCode(), testServerKey))
+	setCurrentStreamManager(stm)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
 	defer stm.CloseAll()
 
 	runGatewayStartup(sm, stm, "newuser@example.com", "SecretPass123", "1", "mock-uuid-001", "", "127.0.0.1:8654")
-	login, ok := GatewaySessions().Get("newuser@example.com")
+	login, ok := currentStreamManager().Registry().Get("newuser@example.com")
 	if !ok {
 		t.Fatal("login newuser@example.com has no session after start-up")
 	}
 
 	// 1. Verify session authenticated
 	if !login.IsAuthenticated() {
-		t.Fatalf("expected session to be authenticated, status: %+v", GatewaySessions().Status())
+		t.Fatalf("expected session to be authenticated, status: %+v", currentStreamManager().Registry().Status())
 	}
 
 	// 2. Verify encrypted profile file created on disk
@@ -199,11 +205,14 @@ func TestGateway_RestartRestoration_FromCachedToken(t *testing.T) {
 	sm.Cloud().Web = serverURL
 	sm.Cloud().GlobalBase = serverURL
 	stm := NewStreamManager(sm.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
+	stm.SetSessionRegistry(NewSessionRegistry(sm, sm.Country(), sm.PhoneCode(), testServerKey))
+	setCurrentStreamManager(stm)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
 	defer stm.CloseAll()
 
 	// Call restart startup with NO CLI credentials
 	runGatewayStartup(sm, stm, "", "", "", "", "", "127.0.0.1:8654")
-	login, ok := GatewaySessions().Get("restart@example.com")
+	login, ok := currentStreamManager().Registry().Get("restart@example.com")
 	if !ok {
 		t.Fatal("login restart@example.com has no session after start-up")
 	}
@@ -215,7 +224,7 @@ func TestGateway_RestartRestoration_FromCachedToken(t *testing.T) {
 
 	// 2. Authentication restored
 	if !login.IsAuthenticated() {
-		t.Fatalf("expected session to be authenticated via cached token, status: %+v", GatewaySessions().Status())
+		t.Fatalf("expected session to be authenticated via cached token, status: %+v", currentStreamManager().Registry().Status())
 	}
 	if login.Cloud().UID != "mock-uid-cached" {
 		t.Fatalf("expected UID mock-uid-cached, got %s", login.Cloud().UID)
@@ -288,10 +297,13 @@ func TestGateway_RestartRestoration_ExpiredTokenFallback(t *testing.T) {
 	sm.Cloud().Web = serverURL
 	sm.Cloud().GlobalBase = serverURL
 	stm := NewStreamManager(sm.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
+	stm.SetSessionRegistry(NewSessionRegistry(sm, sm.Country(), sm.PhoneCode(), testServerKey))
+	setCurrentStreamManager(stm)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
 	defer stm.CloseAll()
 
 	runGatewayStartup(sm, stm, "", "", "", "", "", "127.0.0.1:8654")
-	login, ok := GatewaySessions().Get("reauth@example.com")
+	login, ok := currentStreamManager().Registry().Get("reauth@example.com")
 	if !ok {
 		t.Fatal("login reauth@example.com has no session after start-up")
 	}
@@ -332,6 +344,9 @@ func TestGateway_TamperedProfileRejection(t *testing.T) {
 
 	sm := NewSessionManager("1", "phone-1", testServerKey)
 	stm := NewStreamManager(sm.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
+	stm.SetSessionRegistry(NewSessionRegistry(sm, sm.Country(), sm.PhoneCode(), testServerKey))
+	setCurrentStreamManager(stm)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
 
 	runGatewayStartup(sm, stm, "", "", "", "", "", "127.0.0.1:8654")
 

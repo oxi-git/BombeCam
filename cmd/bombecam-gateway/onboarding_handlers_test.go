@@ -39,6 +39,10 @@ func setupFullTestEnvironment(t *testing.T) (*SessionManager, *StreamManager, pr
 	SetGatewayControlChannel(mockCC)
 
 	streamMgr.SetProfileManager(pm)
+	// Same wiring as main: the manager the gateway reads from, and its pool.
+	setCurrentStreamManager(streamMgr)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
+	ensureTestRegistry(streamMgr, sm, sm.Country(), sm.PhoneCode(), testServerKey)
 	mux := SetupAPIMux(sm, streamMgr)
 	return sm, streamMgr, pm, mockCC, mux, profilePath
 }
@@ -585,6 +589,8 @@ func TestOnboarding_CameraEnrollment_Persistence_And_RestartRecovery(t *testing.
 	freshStreamMgr.SetRunner(func(ctx context.Context, mc *ManagedCamera, rtpPort int) {
 		<-ctx.Done()
 	})
+	// A restart rebuilds the manager, so it needs its own login pool.
+	ensureTestRegistry(freshStreamMgr, freshSM, freshSM.Country(), freshSM.PhoneCode(), testServerKey)
 
 	// Restore gateway state from disk profile
 	diskProf, err := freshPM.Load(context.Background())

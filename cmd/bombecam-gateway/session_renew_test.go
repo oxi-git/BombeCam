@@ -46,13 +46,6 @@ func TestRenewLogin_ExpiredSignIn(t *testing.T) {
 
 	dir := t.TempDir()
 	pm := profile.NewManager(filepath.Join(dir, "p.enc"), []byte("01234567890123456789012345678901"))
-	if err := pm.Save(context.Background(), &profile.Profile{
-		Version: profile.CurrentSchemaVersion, CreatedAt: time.Now().UTC(),
-		Credentials: profile.CloudCredentials{AccountEmail: "me@example.com", Password: "secret", Country: "1", AuthToken: "old-token"},
-		Cameras:     map[string]profile.CameraProfile{},
-	}); err != nil {
-		t.Fatal(err)
-	}
 	SetActiveProfileManager(pm)
 	defer SetActiveProfileManager(nil)
 	renewMu.Lock()
@@ -60,12 +53,23 @@ func TestRenewLogin_ExpiredSignIn(t *testing.T) {
 	renewMu.Unlock()
 
 	template := NewSessionManager("1", "code", testServerKey)
+	streamMgr := NewStreamManager(template.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "")
+	reg := ensureTestRegistry(streamMgr, template, "1", "code", testServerKey)
+	setCurrentStreamManager(streamMgr)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
+	streamMgr.SetProfileManager(pm)
 	template.SetStateForTest(SessionStatusAuthenticated, "me@example.com", "uid-1", "", nil)
-	defer SetGatewaySessions(nil)
-	sm, _ := GatewaySessions().Get("me@example.com")
+	sm, _ := reg.Get("me@example.com")
 	c := sm.Cloud()
 	c.Web, c.GlobalBase, c.APIToken = srv.URL, srv.URL, "old-token"
-	streamMgr := NewStreamManager(c, "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "")
+	// The saved profile points at the same mock cloud the login uses.
+	if err := pm.Save(context.Background(), &profile.Profile{
+		Version: profile.CurrentSchemaVersion, CreatedAt: time.Now().UTC(),
+		Credentials: profile.CloudCredentials{AccountEmail: "me@example.com", Password: "secret", Country: "1", AuthToken: "old-token"},
+		Cameras:     map[string]profile.CameraProfile{},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	streamMgr.SetLoginRenewer(renewCloudLogin)
 
 	// camera offline, sign-in fine: no new sign-in

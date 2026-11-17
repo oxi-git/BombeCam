@@ -50,6 +50,10 @@ func TestSmoke_CoreFunctionality(t *testing.T) {
 	t.Cleanup(func() { SetGatewayOperatorManager(nil) })
 
 	streamMgr.SetProfileManager(pm)
+	// Same wiring as main: the manager the gateway reads from, and its pool.
+	setCurrentStreamManager(streamMgr)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
+	ensureTestRegistry(streamMgr, sm, sm.Country(), sm.PhoneCode(), testServerKey)
 	mux := SetupAPIMux(sm, streamMgr)
 	handler := SecurityBoundaryHandler(mux)
 	server := httptest.NewServer(handler)

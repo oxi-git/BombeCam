@@ -330,14 +330,17 @@ type StreamManager struct {
 	// profileManager is where camera credentials and settings live. Set once
 	// at startup; handlers read it instead of reaching for a global.
 	profileManager profile.ProfileManager
-	ffmpegPath     string
-	cloud          *bridge.Cloud
-	cloudResolver  func(uuid string) *bridge.Cloud // per-camera owning-account cloud; nil -> use cloud
-	loginRenewer   func(old *bridge.Cloud) *bridge.Cloud
-	runner         CameraRunner
-	portBase       int
-	publisher      string
-	retryMaxWait   time.Duration
+	// sessions is the pool of Osaio logins, set once at startup like the
+	// profile store.
+	sessions      *SessionRegistry
+	ffmpegPath    string
+	cloud         *bridge.Cloud
+	cloudResolver func(uuid string) *bridge.Cloud // per-camera owning-account cloud; nil -> use cloud
+	loginRenewer  func(old *bridge.Cloud) *bridge.Cloud
+	runner        CameraRunner
+	portBase      int
+	publisher     string
+	retryMaxWait  time.Duration
 
 	// Advertised addresses for NVRs / Home Assistant (see lan_address.go).
 	nvrAddress  string            // chosen LAN address ("" = automatic)
@@ -414,6 +417,22 @@ func (sm *StreamManager) ProfileManager() profile.ProfileManager {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.profileManager
+}
+
+// SetSessionRegistry installs the pool of Osaio logins every handler and the
+// stream loop read sessions from.
+func (sm *StreamManager) SetSessionRegistry(r *SessionRegistry) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.sessions = r
+}
+
+// Registry returns the pool of Osaio logins, or nil before startup has
+// installed one.
+func (sm *StreamManager) Registry() *SessionRegistry {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.sessions
 }
 
 // AllowedSubnets returns a copy of configured allowed subnets.

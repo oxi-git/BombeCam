@@ -32,11 +32,11 @@ func renewCloudLogin(old *bridge.Cloud) *bridge.Cloud {
 		return nc // another camera's stream renewed this sign-in already
 	}
 	renewMu.Unlock()
-	sm, email := sessionForCloud(old)
+	mgr := currentStreamManager()
+	sm, email := sessionForCloud(old, mgr)
 	if sm == nil || email == "" {
 		return nil
 	}
-	mgr := currentStreamManager()
 	password := savedPassword(email, mgr)
 	if password == "" {
 		fmt.Printf("[session] the Osaio sign-in for %s seems to have expired; no saved password to sign in again (sign in on the page)\n", email)
@@ -76,11 +76,13 @@ func forgetRenewAttempts() {
 }
 
 // sessionForCloud finds the login session that owns c.
-func sessionForCloud(c *bridge.Cloud) (*SessionManager, string) {
-	if reg := GatewaySessions(); reg != nil {
-		for _, sm := range reg.Sessions() {
-			if sm.Cloud() == c {
-				return sm, profile.NormalizeEmail(sm.Email())
+func sessionForCloud(c *bridge.Cloud, sm *StreamManager) (*SessionManager, string) {
+	if sm != nil {
+		if reg := sm.Registry(); reg != nil {
+			for _, session := range reg.Sessions() {
+				if session.Cloud() == c {
+					return session, profile.NormalizeEmail(session.Email())
+				}
 			}
 		}
 	}

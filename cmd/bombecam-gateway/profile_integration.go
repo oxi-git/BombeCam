@@ -181,7 +181,7 @@ func runGatewayStartup(sm *SessionManager, stm *StreamManager, email, password, 
 // may fix.
 func bootstrapProfileFromCredentials(ctx context.Context, sm *SessionManager, stm *StreamManager, pm profile.ProfileManager, email, password, country, enrolledF, deviceSel string) bool {
 	fmt.Printf("[session] authenticating account %s...\n", email)
-	reg := sessionsFor(sm)
+	reg := stm.Registry()
 	session, fail := signInToPool(ctx, reg, pm, email, password, country)
 	if fail != nil {
 		fmt.Printf("[session] login failed: %s\n", fail.Message)
@@ -304,7 +304,7 @@ func restoreGatewayState(ctx context.Context, sm *SessionManager, stm *StreamMan
 		applyTimezoneConfig(sm.Cloud(), prof.Connection.Timezone, fmt.Sprintf("%.2f", prof.Connection.TimezoneOffset))
 	}
 
-	reg := sessionsFor(sm)
+	reg := stm.Registry()
 	if len(prof.Accounts) == 0 {
 		fmt.Println("[session] no Osaio login saved; awaiting sign-in on the web page")
 		sm.SetStatus(SessionStatusCredentialsMissing, "first-run: no profile configured; complete onboarding via API")

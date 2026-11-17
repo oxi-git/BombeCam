@@ -78,7 +78,7 @@ func handleAccountsList(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 		prof = pm.GetProfile()
 	}
 	if prof != nil {
-		reg := GatewaySessions()
+		reg := streamMgr.Registry()
 		for _, a := range prof.Accounts {
 			var sm *SessionManager
 			found := false
@@ -196,7 +196,7 @@ func handleAccountSignIn(w http.ResponseWriter, r *http.Request, sessionMgr *Ses
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request", "message": "Enter the login's email and password."})
 		return
 	}
-	reg := sessionsFor(sessionMgr)
+	reg := streamMgr.Registry()
 	pm := streamMgr.ProfileManager()
 	var saved *profile.Profile
 	if pm != nil {
@@ -247,7 +247,7 @@ func handleAccountCameras(w http.ResponseWriter, r *http.Request, streamMgr *Str
 		return
 	}
 	email := profile.NormalizeEmail(req.Email)
-	reg := GatewaySessions()
+	reg := streamMgr.Registry()
 	var sm *SessionManager
 	ok := false
 	if reg != nil && email != "" {
@@ -335,7 +335,7 @@ func handleAccountRemove(w http.ResponseWriter, r *http.Request, sessionMgr *Ses
 		return
 	}
 
-	reg := sessionsFor(sessionMgr)
+	reg := streamMgr.Registry()
 	reg.Remove(email)
 	if len(updated.Accounts) == 0 {
 		sessionMgr.Reset() // nothing left to sign in: back to first run

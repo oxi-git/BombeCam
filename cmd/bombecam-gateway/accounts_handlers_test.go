@@ -85,9 +85,8 @@ func setupAccountPool(t *testing.T) (*SessionManager, *StreamManager, profile.Pr
 	passwords := map[string]string{"a@example.test": "pw-a", "b@example.test": "pw-b"}
 	srv := fakeOsaioPool(t, passwords, map[string][]string{"a@example.test": {"cam-a"}, "b@example.test": {"cam-b"}})
 	sm.Cloud().GlobalBase = srv.URL
-	reg := NewSessionRegistry(sm, "1", "fixture", testServerKey)
-	SetGatewaySessions(reg)
-	t.Cleanup(func() { SetGatewaySessions(nil) })
+	ensureTestRegistry(stm, sm, "1", "fixture", testServerKey)
+	t.Cleanup(func() { stm.SetSessionRegistry(nil) })
 
 	for _, email := range []string{"a@example.test", "b@example.test"} {
 		rr, _ := postJSON(t, mux, "/api/v1/accounts/signin", fmt.Sprintf(`{"email":%q,"password":%q,"country":"1"}`, email, passwords[email]))
@@ -112,7 +111,7 @@ func setupAccountPool(t *testing.T) (*SessionManager, *StreamManager, profile.Pr
 
 func TestAccountsPoolSignInListAndCameras(t *testing.T) {
 	template, stm, pm, mux, _ := setupAccountPool(t)
-	reg := GatewaySessions()
+	reg := stm.Registry()
 	a, okA := reg.Get("a@example.test")
 	b, okB := reg.Get("b@example.test")
 	if !okA || !okB || a == b || a == template || b == template || !a.IsAuthenticated() || !b.IsAuthenticated() {
@@ -140,8 +139,8 @@ func TestAccountsPoolSignInListAndCameras(t *testing.T) {
 
 // A mistyped password leaves the working sign-in alone; the right one is saved.
 func TestAccountsWrongPasswordKeepsWorkingLogin(t *testing.T) {
-	_, _, pm, mux, _ := setupAccountPool(t)
-	a, _ := GatewaySessions().Get("a@example.test")
+	_, stm, pm, mux, _ := setupAccountPool(t)
+	a, _ := stm.Registry().Get("a@example.test")
 	cloudA := a.Cloud()
 	rr, out := postJSON(t, mux, "/api/v1/accounts/signin", `{"email":"a@example.test","password":"typo","country":"1"}`)
 	if rr.Code != http.StatusUnauthorized || out["error"] != "invalid_credentials" {
@@ -161,7 +160,7 @@ func TestAccountsWrongPasswordKeepsWorkingLogin(t *testing.T) {
 // Removing a login takes only its cameras with it.
 func TestAccountsRemoveSecondaryLogin(t *testing.T) {
 	_, stm, pm, mux, _ := setupAccountPool(t)
-	a, _ := GatewaySessions().Get("a@example.test")
+	a, _ := stm.Registry().Get("a@example.test")
 	rr, out := postJSON(t, mux, "/api/v1/accounts/remove", `{"email":"b@example.test"}`)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("remove: %d %v", rr.Code, out)
@@ -173,13 +172,13 @@ func TestAccountsRemoveSecondaryLogin(t *testing.T) {
 	if _, ok := prof.Cameras["cam-b"]; ok || stm.CameraCount() != 1 {
 		t.Fatalf("b's camera not removed: %+v", prof.Cameras)
 	}
-	if got, _ := GatewaySessions().Get("a@example.test"); got != a || !a.IsAuthenticated() {
+	if got, _ := stm.Registry().Get("a@example.test"); got != a || !a.IsAuthenticated() {
 		t.Fatal("the other login's session must stay as it was")
 	}
 	if _, ok := prof.Cameras["cam-a"]; !ok {
 		t.Fatal("the other login's camera must stay")
 	}
-	if _, ok := GatewaySessions().Get("b@example.test"); ok {
+	if _, ok := stm.Registry().Get("b@example.test"); ok {
 		t.Fatal("b's session still registered")
 	}
 }
@@ -189,16 +188,16 @@ func TestAccountsRemoveSecondaryLogin(t *testing.T) {
 // nothing signs in again.
 func TestAccountsRemoveFirstLoginLeavesOthersUntouched(t *testing.T) {
 	_, stm, pm, mux, _ := setupAccountPool(t)
-	b, _ := GatewaySessions().Get("b@example.test")
+	b, _ := stm.Registry().Get("b@example.test")
 	cloudB := b.Cloud()
 	rr, out := postJSON(t, mux, "/api/v1/accounts/remove", `{"email":"a@example.test"}`)
 	if rr.Code != http.StatusOK || out["logins_left"] != float64(1) {
 		t.Fatalf("remove: %d %v", rr.Code, out)
 	}
-	if got, ok := GatewaySessions().Get("b@example.test"); !ok || got != b || !b.IsAuthenticated() || b.Cloud() != cloudB {
+	if got, ok := stm.Registry().Get("b@example.test"); !ok || got != b || !b.IsAuthenticated() || b.Cloud() != cloudB {
 		t.Fatalf("b's session must be untouched: %+v", b.GetStatus())
 	}
-	if GatewaySessions().CloudFor("a@example.test") != nil {
+	if stm.Registry().CloudFor("a@example.test") != nil {
 		t.Fatal("a's session should be gone")
 	}
 	prof := pm.GetProfile()
@@ -230,8 +229,8 @@ func TestAccountsRemoveLastLogin(t *testing.T) {
 	if !prof.Integrations.Snapshots {
 		t.Fatal("other settings must be kept")
 	}
-	if len(GatewaySessions().Sessions()) != 0 || GatewaySessions().Status().Status != SessionStatusCredentialsMissing {
-		t.Fatalf("no login should be left: %+v", GatewaySessions().Status())
+	if len(stm.Registry().Sessions()) != 0 || stm.Registry().Status().Status != SessionStatusCredentialsMissing {
+		t.Fatalf("no login should be left: %+v", stm.Registry().Status())
 	}
 	_ = sm
 	if rr, _ := postJSON(t, mux, "/api/v1/accounts/remove", `{"email":"a@example.test"}`); rr.Code != http.StatusNotFound {
@@ -272,9 +271,8 @@ func TestRestoreBringsBackSavedLoginsAndOnlyAddedCameras(t *testing.T) {
 	template.Cloud().GlobalBase = srv.URL
 	stm := NewStreamManager(template.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
 	stm.SetRunner(func(ctx context.Context, mc *ManagedCamera, rtpPort int) { <-ctx.Done() })
-	reg := NewSessionRegistry(template, "1", "fixture", testServerKey)
-	SetGatewaySessions(reg)
-	defer SetGatewaySessions(nil)
+	reg := ensureTestRegistry(stm, template, "1", "fixture", testServerKey)
+	defer stm.SetSessionRegistry(nil)
 
 	restoreGatewayState(context.Background(), template, stm, pm, pm.GetProfile())
 
@@ -304,12 +302,12 @@ func TestRestoreBringsBackSavedLoginsAndOnlyAddedCameras(t *testing.T) {
 func TestQuickStartAddsToThePool(t *testing.T) {
 	template, stm, pm, mux, passwords := setupAccountPool(t)
 	_ = passwords
-	a, _ := GatewaySessions().Get("a@example.test")
+	a, _ := stm.Registry().Get("a@example.test")
 	rr, out := postJSON(t, mux, "/api/v1/onboarding/setup", `{"account_email":"b@example.test","password":"pw-b","country":"1","force":true}`)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("quick start: %d %v", rr.Code, out)
 	}
-	if got, _ := GatewaySessions().Get("a@example.test"); got != a || !a.IsAuthenticated() {
+	if got, _ := stm.Registry().Get("a@example.test"); got != a || !a.IsAuthenticated() {
 		t.Fatal("signing another login in must not touch a@")
 	}
 	prof := pm.GetProfile()

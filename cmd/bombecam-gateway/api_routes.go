@@ -17,11 +17,6 @@ import (
 
 // SetupAPIMux registers both the modern REST API (/api/v1/...) and legacy endpoints.
 func SetupAPIMux(sessionMgr *SessionManager, streamMgr *StreamManager) *http.ServeMux {
-	// Every handler reaches the Osaio logins through the pool; sessionMgr is
-	// only its template.
-	if reg := GatewaySessions(); sessionMgr != nil && (reg == nil || reg.Template() != sessionMgr) {
-		SetGatewaySessions(NewSessionRegistry(sessionMgr, sessionMgr.Country(), sessionMgr.PhoneCode(), nil))
-	}
 	mux := http.NewServeMux()
 
 	registerOperatorRoutes(mux, sessionMgr, streamMgr)
@@ -89,7 +84,7 @@ func registerOperatorRoutes(mux *http.ServeMux, sessionMgr *SessionManager, stre
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)
 			return
 		}
-		writeJSON(w, http.StatusOK, sessionsFor(sessionMgr).Status())
+		writeJSON(w, http.StatusOK, streamMgr.Registry().Status())
 	})
 }
 

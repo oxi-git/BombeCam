@@ -72,9 +72,8 @@ func TestUnknownCountryStopsSetupAndSearchBeforeVendorAuthentication(t *testing.
 	}))
 	defer srv.Close()
 	sm.Cloud().GlobalBase = srv.URL
-	reg := NewSessionRegistry(sm, "", "fixture", testServerKey)
-	SetGatewaySessions(reg)
-	defer SetGatewaySessions(nil)
+	ensureTestRegistry(stm, sm, "", "fixture", testServerKey)
+	defer stm.SetSessionRegistry(nil)
 	for _, request := range []struct{ path, body string }{{"/api/v1/onboarding/setup", `{"account_email":"a@example.test","password":"synthetic","force":true}`}, {"/api/v1/cameras/search", `{"email":"a@example.test","password":"synthetic"}`}} {
 		rr := httptest.NewRecorder()
 		mux.ServeHTTP(rr, httptest.NewRequest("POST", request.path, strings.NewReader(request.body)))

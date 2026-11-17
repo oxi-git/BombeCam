@@ -13,6 +13,40 @@ import (
 // testServerKey is a made-up key; tests run against mock clouds only.
 const testServerKey = serverkey.Static("synthetic-test-key-0001")
 
+// installedRegistry is the login pool the running gateway reads, so a
+// fixture's sign-in lands where the handlers look for it.
+func installedRegistry(template *SessionManager) *SessionRegistry {
+	sm := currentStreamManager()
+	if sm == nil {
+		return nil
+	}
+	if reg := sm.Registry(); reg != nil && reg.Template() == template {
+		return reg
+	}
+	return ensureTestRegistry(sm, template, template.Country(), template.PhoneCode(), testServerKey)
+}
+
+// ensureTestRegistry installs reg on the stream manager the handlers read it
+// from (and on the package-wide manager when on is nil), replacing a registry
+// built for another template.
+func ensureTestRegistry(on *StreamManager, template *SessionManager, country, phoneCode string, keys serverkey.Provider) *SessionRegistry {
+	sm := on
+	if sm == nil {
+		sm = currentStreamManager()
+	}
+	if sm == nil {
+		// No manager in scope (a fixture that only builds sessions): the
+		// caller cannot install the pool anywhere, so hand back a loose one.
+		return NewSessionRegistry(template, country, phoneCode, keys)
+	}
+	if reg := sm.Registry(); reg != nil && reg.Template() == template {
+		return reg
+	}
+	reg := NewSessionRegistry(template, country, phoneCode, keys)
+	sm.SetSessionRegistry(reg)
+	return reg
+}
+
 // Fixture injection is deliberately absent from production builds.
 //
 // Called on the gateway's template session with an email, it sets up that
@@ -20,10 +54,9 @@ const testServerKey = serverkey.Static("synthetic-test-key-0001")
 // fake Osaio address applies), which is where a signed-in login lives.
 func (sm *SessionManager) SetStateForTest(status SessionStatus, email, uid, errStr string, devs []bridge.Device) {
 	if email != "" {
-		reg := GatewaySessions()
-		if reg == nil || (reg.Template() != sm && !reg.holds(sm)) {
-			reg = NewSessionRegistry(sm, sm.Country(), sm.PhoneCode(), nil)
-			SetGatewaySessions(reg)
+		reg := installedRegistry(sm)
+		if reg == nil {
+			reg = NewSessionRegistry(sm, sm.Country(), sm.PhoneCode(), testServerKey)
 		}
 		if reg.Template() == sm {
 			login := reg.Ensure(email)

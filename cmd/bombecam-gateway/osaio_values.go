@@ -174,7 +174,7 @@ func resumeAfterChange(v *osaioValue, sm *SessionManager, stm *StreamManager) {
 		f()
 		return
 	}
-	for _, session := range sessionsFor(sm).Sessions() {
+	for _, session := range stm.Registry().Sessions() {
 		switch session.GetStatus().Status {
 		case SessionStatusServerKeyMissing, SessionStatusAppIDMissing, SessionStatusInvalidCredentials:
 		default:

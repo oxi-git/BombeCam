@@ -61,12 +61,15 @@ func TestGateway_StartsWhenAccountListsNoCameras(t *testing.T) {
 	sm.Cloud().Web = serverURL
 	sm.Cloud().GlobalBase = serverURL
 	stm := NewStreamManager(sm.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
+	stm.SetSessionRegistry(NewSessionRegistry(sm, sm.Country(), sm.PhoneCode(), testServerKey))
+	setCurrentStreamManager(stm)
+	t.Cleanup(func() { setCurrentStreamManager(nil) })
 	defer stm.CloseAll()
 
 	runGatewayStartupSafely(sm, stm, "", "", "", "", "", "127.0.0.1:8654")
 
-	if login, ok := GatewaySessions().Get("owner@example.com"); !ok || !login.IsAuthenticated() {
-		t.Fatalf("login not restored: %+v", GatewaySessions().Status())
+	if login, ok := currentStreamManager().Registry().Get("owner@example.com"); !ok || !login.IsAuthenticated() {
+		t.Fatalf("login not restored: %+v", currentStreamManager().Registry().Status())
 	}
 	if _, ok := stm.GetCamera("e56"); !ok {
 		t.Fatal("the saved camera must stay enrolled so it streams again once it is back on the account")

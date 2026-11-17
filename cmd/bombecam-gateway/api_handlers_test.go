@@ -132,6 +132,9 @@ func setupTestEnvironment() (*SessionManager, *StreamManager, *mockControlChanne
 
 	mockCC := &mockControlChannel{irMode: 1, ledOn: true}
 	SetGatewayControlChannel(mockCC)
+	// Same wiring as main: the manager the gateway reads from, and its pool.
+	setCurrentStreamManager(streamMgr)
+	ensureTestRegistry(streamMgr, sm, sm.Country(), sm.PhoneCode(), testServerKey)
 
 	mux := SetupAPIMux(sm, streamMgr)
 	return sm, streamMgr, mockCC, mux

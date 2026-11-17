@@ -491,7 +491,7 @@ func handleCameraCloudDays(w http.ResponseWriter, r *http.Request, camID, month 
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-	cloud := sessionsFor(sessionMgr).Template().Cloud()
+	cloud := streamMgr.Registry().Template().Cloud()
 	if cloud == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "not_signed_in", "message": "Sign in to Osaio first."})
 		return
@@ -514,7 +514,7 @@ func handleCameraCloudPlayback(w http.ResponseWriter, r *http.Request, camID str
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "camera not found"})
 		return
 	}
-	cloud := sessionsFor(sessionMgr).Template().Cloud()
+	cloud := streamMgr.Registry().Template().Cloud()
 	if cloud == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "not_signed_in", "message": "Sign in to Osaio first."})
 		return

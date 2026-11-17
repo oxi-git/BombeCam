@@ -523,7 +523,7 @@ func main() {
 	// camera streams through the login it was added with. sessionMgr is only
 	// the template new sessions are made from; no login is the main one.
 	sessionRegistry := NewSessionRegistry(sessionMgr, *country, phoneCode, keys)
-	SetGatewaySessions(sessionRegistry)
+	streamMgr.SetSessionRegistry(sessionRegistry)
 	streamMgr.SetLoginRenewer(renewCloudLogin)
 	streamMgr.SetCloudResolver(func(uuid string) *bridge.Cloud {
 		if pm := streamMgr.ProfileManager(); pm != nil {

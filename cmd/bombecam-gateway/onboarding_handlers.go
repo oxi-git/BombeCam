@@ -43,7 +43,7 @@ func handleOnboardingStatus(w http.ResponseWriter, r *http.Request, sessionMgr *
 		}
 	}
 
-	reg := sessionsFor(sessionMgr)
+	reg := streamMgr.Registry()
 	sessionInfo := reg.Status()
 
 	loginsCount := 0
@@ -240,7 +240,7 @@ func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *S
 		}
 	}
 
-	reg := sessionsFor(sessionMgr)
+	reg := streamMgr.Registry()
 	country, countryErr := resolveAccountCountry(req.Country, req.AccountEmail, existingProf, countrySession(reg, req.AccountEmail))
 	if countryErr != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "country_required", "message": countryErr.Error()})
@@ -444,7 +444,7 @@ func resetStoredInformation(ctx context.Context, sessionMgr *SessionManager, str
 	}
 
 	sessionMgr.Reset()
-	if reg := GatewaySessions(); reg != nil {
+	if reg := streamMgr.Registry(); reg != nil {
 		reg.Clear()
 	}
 	// Without an administrator to keep, nobody stays signed in.
@@ -477,7 +477,7 @@ func handleCameraDiscover(w http.ResponseWriter, r *http.Request, sessionMgr *Se
 		return
 	}
 
-	reg := sessionsFor(sessionMgr)
+	reg := streamMgr.Registry()
 	if !reg.AnyAuthenticated() {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": "unauthenticated: no Osaio login is signed in",
@@ -580,7 +580,7 @@ func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *Sess
 	// The cameras the signed-in logins listed last, each with its login.
 	var cachedDevs []bridge.Device
 	owners := map[string]string{}
-	for _, sm := range sessionsFor(sessionMgr).Sessions() {
+	for _, sm := range streamMgr.Registry().Sessions() {
 		for _, d := range sm.GetCachedDevices() {
 			if _, dup := owners[d.UUID]; !dup {
 				owners[d.UUID] = profile.NormalizeEmail(sm.Email())

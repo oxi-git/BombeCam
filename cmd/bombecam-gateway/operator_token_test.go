@@ -31,10 +31,14 @@ func setupOperatorTokenEnv(t *testing.T) (*SessionManager, *StreamManager, profi
 	streamMgr := NewStreamManager(nil, "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
 
 	streamMgr.SetProfileManager(pm)
+	// Same wiring as main: the manager the gateway reads from, and its pool.
+	setCurrentStreamManager(streamMgr)
+	ensureTestRegistry(streamMgr, sm, sm.Country(), sm.PhoneCode(), testServerKey)
 	mux := SetupAPIMux(sm, streamMgr)
 	handler := SecurityBoundaryHandler(mux)
 
 	t.Cleanup(func() {
+		setCurrentStreamManager(nil)
 		SetActiveProfileManager(nil)
 		SetGatewayOperatorManager(nil)
 	})
@@ -106,11 +110,11 @@ func TestOperatorToken_StrangerVisitorSession_RejectedWith401(t *testing.T) {
 
 // 3. Logged-in vendor state (sessionMgr.IsAuthenticated() == true) does NOT allow stranger session; rejected with 401.
 func TestOperatorToken_LoggedInVendorState_DoesNotAllowStranger(t *testing.T) {
-	sm, _, _, _, _, handler := setupOperatorTokenEnv(t)
+	sm, streamMgr, _, _, _, handler := setupOperatorTokenEnv(t)
 
 	// Simulate gateway owner is already logged in to vendor cloud
 	sm.SetStateForTest(SessionStatusAuthenticated, "owner@example.com", "vendor-uid-12345", "", nil)
-	if !GatewaySessions().AnyAuthenticated() {
+	if !streamMgr.Registry().AnyAuthenticated() {
 		t.Fatal("expected a signed-in Osaio login")
 	}
 

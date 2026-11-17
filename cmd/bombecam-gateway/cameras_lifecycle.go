@@ -62,7 +62,7 @@ func handleCameraSearch(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "email and password are required"})
 		return
 	}
-	reg := GatewaySessions()
+	reg := streamMgr.Registry()
 	if reg == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "session registry unavailable"})
 		return
@@ -151,7 +151,7 @@ func handleCameraAdd(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "camera_ids must not be empty"})
 		return
 	}
-	reg := GatewaySessions()
+	reg := streamMgr.Registry()
 	if reg == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "session registry unavailable"})
 		return
