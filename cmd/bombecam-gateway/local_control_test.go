@@ -38,7 +38,7 @@ func TestLocalControlsNeverFallBackToAvailableCloud(t *testing.T) {
 	}
 	defer sig.Close()
 	sm := NewStreamManager(nil, "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "")
-	sm.SetRunner(func(ctx context.Context, _ *ManagedCamera, _ bridge.Device, _ int) { <-ctx.Done() })
+	sm.SetRunner(func(ctx context.Context, _ *ManagedCamera, _ int) { <-ctx.Done() })
 	defer sm.CloseAll()
 	if _, err := sm.Enroll([]string{"fixture-camera"}, []bridge.Device{{UUID: "fixture-camera", Name: "Fixture", Type: "WS03"}}); err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestLocalControlsNeverFallBackToAvailableCloud(t *testing.T) {
 
 func TestLocalShadowNeverLeaksCloudOrRequestedValues(t *testing.T) {
 	sm := NewStreamManager(nil, "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "")
-	sm.SetRunner(func(ctx context.Context, _ *ManagedCamera, _ bridge.Device, _ int) { <-ctx.Done() })
+	sm.SetRunner(func(ctx context.Context, _ *ManagedCamera, _ int) { <-ctx.Done() })
 	defer sm.CloseAll()
 	_, _ = sm.Enroll([]string{"fixture-camera"}, []bridge.Device{{UUID: "fixture-camera", Name: "Fixture", Type: "WS03"}})
 	mc, _ := sm.GetCamera("fixture-camera")

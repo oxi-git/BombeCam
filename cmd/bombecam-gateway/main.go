@@ -40,13 +40,7 @@ func SetGatewayControlChannel(cc bridge.ControlChannel) {
 	gwControlChan = cc
 	gwCtrlMu.Unlock()
 
-	sigMu.RLock()
-	defer sigMu.RUnlock()
-	for _, cs := range sigMap {
-		if cs.viewer != nil {
-			cs.viewer.SetControlChannel(cc)
-		}
-	}
+	setControlChannelOnSignaling(cc)
 }
 
 // GatewayControlChannel returns the currently bound ControlChannel
@@ -75,20 +69,9 @@ func GatewayOperatorManager() *auth.OperatorManager {
 	return gwOperatorManager
 }
 
-type CamSignaling struct {
-	dev    bridge.Device
-	sig    *bridge.Signaling
-	viewer *bridge.Viewer
-
-	mu            sync.Mutex
-	lastAttrQuery time.Time
-}
-
 // cameraSetting exposes only fresh, correlated camera readbacks.
 func cameraSetting(uuid, key string) (any, string, bool) {
-	sigMu.RLock()
-	cs := sigMap[uuid]
-	sigMu.RUnlock()
+	cs := signalingFor(uuid)
 	if cs == nil || cs.sig == nil {
 		return nil, "", false
 	}
@@ -98,9 +81,7 @@ func cameraSetting(uuid, key string) (any, string, bool) {
 
 // refreshCameraSettings asks the camera for attributes (at most every 3 s).
 func refreshCameraSettings(uuid string, keys ...string) {
-	sigMu.RLock()
-	cs := sigMap[uuid]
-	sigMu.RUnlock()
+	cs := signalingFor(uuid)
 	if cs == nil || cs.sig == nil {
 		return
 	}
@@ -116,30 +97,6 @@ func refreshCameraSettings(uuid string, keys ...string) {
 		defer cancel()
 		_, _ = cs.sig.QueryAttributes(ctx, uuid, keys...)
 	}()
-}
-
-var (
-	sigMu  sync.RWMutex
-	sigMap = make(map[string]*CamSignaling)
-)
-
-func registerSig(dev bridge.Device, sig *bridge.Signaling, v *bridge.Viewer) {
-	if sig != nil {
-		sig.BindCamera(dev.UUID, dev.Type)
-	}
-	sigMu.Lock()
-	defer sigMu.Unlock()
-	sigMap[dev.UUID] = &CamSignaling{
-		dev:    dev,
-		sig:    sig,
-		viewer: v,
-	}
-}
-
-func unregisterSig(uuid string) {
-	sigMu.Lock()
-	defer sigMu.Unlock()
-	delete(sigMap, uuid)
 }
 
 // cameraControl returns the channel that carries commands for a camera: the
@@ -159,7 +116,7 @@ func cameraControl(streamMgr *StreamManager, camID string) bridge.ControlChannel
 			}
 		}
 	}
-	if cs := findTargetCam(camID); cs != nil && cs.sig != nil {
+	if cs := findSignaling(camID); cs != nil && cs.sig != nil {
 		return bridge.NewSignalingControlChannel(cs.sig)
 	}
 	return nil
@@ -179,7 +136,7 @@ func cameraSignalingControl(streamMgr *StreamManager, camID string) bridge.Contr
 			}
 		}
 	}
-	if cs := findTargetCam(camID); cs != nil && cs.sig != nil {
+	if cs := findSignaling(camID); cs != nil && cs.sig != nil {
 		return bridge.NewSignalingControlChannel(cs.sig)
 	}
 	return nil
@@ -242,74 +199,6 @@ func getEnvFirst(keys []string, defVal string) string {
 		}
 	}
 	return defVal
-}
-
-var (
-	sessionsMu sync.RWMutex
-	sessions   = make(map[string]*CameraSession)
-)
-
-func registerCameraSession(s *CameraSession) {
-	sessionsMu.Lock()
-	defer sessionsMu.Unlock()
-	sessions[s.UUID] = s
-}
-
-func unregisterCameraSession(uuid string) {
-	sessionsMu.Lock()
-	defer sessionsMu.Unlock()
-	delete(sessions, uuid)
-}
-
-func findCameraSession(cam string) *CameraSession {
-	sessionsMu.RLock()
-	defer sessionsMu.RUnlock()
-	if cam != "" {
-		for uuid, s := range sessions {
-			if uuid == cam || strings.EqualFold(s.Name, cam) {
-				return s
-			}
-		}
-		camLower := strings.ToLower(cam)
-		for uuid, s := range sessions {
-			if strings.Contains(strings.ToLower(uuid), camLower) || strings.Contains(strings.ToLower(s.Name), camLower) {
-				return s
-			}
-		}
-	}
-	return nil
-}
-
-func findTargetCam(cam string) *CamSignaling {
-	sigMu.RLock()
-	defer sigMu.RUnlock()
-	if cam != "" {
-		for uuid, cs := range sigMap {
-			if uuid == cam || strings.EqualFold(cs.dev.Name, cam) {
-				return cs
-			}
-		}
-		camLower := strings.ToLower(cam)
-		for uuid, cs := range sigMap {
-			if strings.Contains(strings.ToLower(uuid), camLower) || strings.Contains(strings.ToLower(cs.dev.Name), camLower) {
-				return cs
-			}
-		}
-	} else {
-		for _, cs := range sigMap {
-			return cs
-		}
-	}
-	return nil
-}
-
-func startControlAPI(addr string, sessionMgr *SessionManager, streamMgr *StreamManager) {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		fmt.Printf("[control] HTTP server error: %v\n", err)
-		return
-	}
-	serveControlAPI(ln, sessionMgr, streamMgr)
 }
 
 func serveControlAPI(ln net.Listener, sessionMgr *SessionManager, streamMgr *StreamManager) {
@@ -402,8 +291,7 @@ func SecurityBoundaryHandler(next http.Handler) http.Handler {
 			isCSRFEndpoint := r.URL.Path == "/api/v1/auth/csrf" || r.URL.Path == "/api/v1/operator/csrf"
 			switch {
 			case isCSRFEndpoint || isStaticAsset(r):
-				if !om.ValidateHost(r.Host) {
-					w.WriteHeader(http.StatusForbidden)
+				if om.RejectForbiddenHost(w, r) {
 					return
 				}
 			case publicAPIPaths[r.URL.Path]:
@@ -411,7 +299,7 @@ func SecurityBoundaryHandler(next http.Handler) http.Handler {
 					return
 				}
 			default:
-				if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+				if !om.ValidateSecurityBoundary(w, r, signInRequired(r, currentStreamManager())) {
 					return
 				}
 			}
@@ -501,7 +389,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "invalid control transport: use mqtt or cloud")
 		os.Exit(2)
 	}
-	localControlTestActive.Store(*localTestFlag)
+	// Set it on the manager that owns the streams, after it is created.
 
 	controlListener := claimControlPort(*httpAddr, *headlessFlag)
 	if logPath := setupGatewayLog(); logPath != "" {
@@ -618,6 +506,10 @@ func main() {
 		fmt.Printf("[media] publishing camera video with the built-in publisher; FFmpeg not found, so browsers get sound via HLS and talkback is unavailable\n")
 	}
 	streamMgr := NewStreamManager(sessionMgr.Cloud(), effectivePublishRTSP, *hlsBase, camIPs, *strictManualFlag, ffmpegPath)
+	// One place holds the profile store: handlers and the stream loop read it
+	// from the manager instead of a package global.
+	streamMgr.SetProfileManager(pm)
+	streamMgr.SetLocalControlTest(*localTestFlag)
 	streamMgr.SetPublisher(publisher)
 	streamMgr.SetRetryMaxWait(*retryMaxWaitFlag)
 	if mtxSupervisor != nil && !mediaBasesSet && *mediamtxConfigFlag == "" {
@@ -634,7 +526,7 @@ func main() {
 	SetGatewaySessions(sessionRegistry)
 	streamMgr.SetLoginRenewer(renewCloudLogin)
 	streamMgr.SetCloudResolver(func(uuid string) *bridge.Cloud {
-		if pm := ActiveProfileManager(); pm != nil {
+		if pm := streamMgr.ProfileManager(); pm != nil {
 			if prof := pm.GetProfile(); prof != nil {
 				if creds, ok := prof.AccountForCamera(uuid); ok {
 					return sessionRegistry.CloudFor(creds.AccountEmail)
@@ -671,7 +563,7 @@ func main() {
 				}
 			}
 		}
-		if cs := findTargetCam(cameraUUID); cs != nil && cs.sig != nil {
+		if cs := findSignaling(cameraUUID); cs != nil && cs.sig != nil {
 			return cs.sig, nil
 		}
 		return nil, fmt.Errorf("camera %s has no active signaling connection", cameraUUID)
@@ -755,13 +647,11 @@ func main() {
 	go serveControlAPI(controlListener, sessionMgr, streamMgr)
 
 	if !*headlessFlag && !*startupFlag && runtime.GOOS == "windows" {
-		go func() {
-			time.Sleep(250 * time.Millisecond)
-			showPage(browserURL(*httpAddr))
-		}()
+		// The listener accepts as soon as it exists, so the page can open now.
+		go showPage(browserURL(*httpAddr))
 	}
 
-	go runGatewayStartupSafely(sessionMgr, streamMgr, *emailF, *passF, *country, *enrolledF, *deviceSel, *httpAddr, pm)
+	go runGatewayStartupSafely(sessionMgr, streamMgr, *emailF, *passF, *country, *enrolledF, *deviceSel, *httpAddr)
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)

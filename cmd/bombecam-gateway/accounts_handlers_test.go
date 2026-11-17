@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Fever-r/BombeCam/pkg/bridge"
 	"github.com/Fever-r/BombeCam/pkg/profile"
 )
 
@@ -272,7 +271,7 @@ func TestRestoreBringsBackSavedLoginsAndOnlyAddedCameras(t *testing.T) {
 	template := NewSessionManager("1", "fixture", testServerKey)
 	template.Cloud().GlobalBase = srv.URL
 	stm := NewStreamManager(template.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
-	stm.SetRunner(func(ctx context.Context, mc *ManagedCamera, dev bridge.Device, rtpPort int) { <-ctx.Done() })
+	stm.SetRunner(func(ctx context.Context, mc *ManagedCamera, rtpPort int) { <-ctx.Done() })
 	reg := NewSessionRegistry(template, "1", "fixture", testServerKey)
 	SetGatewaySessions(reg)
 	defer SetGatewaySessions(nil)

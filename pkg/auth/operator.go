@@ -254,7 +254,6 @@ func (om *OperatorManager) IssueSessionCookie(w http.ResponseWriter, sess *Sessi
 	})
 }
 
-// ClearSessionCookie clears the session cookie.
 func (om *OperatorManager) ClearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
@@ -370,82 +369,73 @@ func (om *OperatorManager) AuthenticateRequestWithStatus(r *http.Request) (bool,
 }
 
 // ValidateSecurityBoundary performs complete Host, Origin, and CSRF boundary checks on a request.
+// RejectForbiddenHost writes the rejection for a Host header the operator
+// boundary does not accept. Handlers that run their own credential checks still
+// need this one, so it stays a callable unit rather than part of the boundary.
+func (om *OperatorManager) RejectForbiddenHost(w http.ResponseWriter, r *http.Request) bool {
+	if om.ValidateHost(r.Host) {
+		return false
+	}
+	writeJSONError(w, http.StatusForbidden, "forbidden_host", "Host header rejected by local security boundary")
+	return true
+}
+
 func (om *OperatorManager) ValidateSecurityBoundary(w http.ResponseWriter, r *http.Request, requireAuth bool) bool {
-	// 1. Host header validation (DNS rebinding prevention)
-	if !om.ValidateHost(r.Host) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"error":   "forbidden_host",
-			"message": "Host header rejected by local security boundary",
-		})
+	if om.RejectForbiddenHost(w, r) {
 		return false
 	}
 
-	// 2. Origin validation on state-mutating requests
 	isStateMutating := r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete || r.Method == http.MethodPatch
 	origin := r.Header.Get("Origin")
 	if isStateMutating && origin != "" {
 		if !om.ValidateRequestOrigin(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error":   "forbidden_origin",
-				"message": "Origin rejected by cross-origin security boundary",
-			})
+			writeJSONError(w, http.StatusForbidden, "forbidden_origin", "Origin rejected by cross-origin security boundary")
 			return false
 		}
 	}
 
-	// 3. Inspect credentials
 	authOK, isBearer, sess, credErr := om.AuthenticateRequestWithStatus(r)
 
-	// If credentials were provided but are invalid/expired, reject immediately with 401 Unauthorized
 	if credErr != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
 		errMsg := "Invalid or expired session cookie"
 		if errors.Is(credErr, ErrInvalidToken) {
 			errMsg = "Invalid or expired authorization token"
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"error":   "unauthorized",
-			"message": errMsg,
-		})
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", errMsg)
 		return false
 	}
 
-	// 4. If authentication is required but missing, reject with 401 Unauthorized
 	if requireAuth && !authOK {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"error":   "unauthorized",
-			"message": "Local operator authentication required",
-		})
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Local operator authentication required")
 		return false
 	}
 
-	// 5. Programmatic Bearer clients are exempt from CSRF checks
 	if isBearer && authOK {
 		return true
 	}
 
-	// 6. Browser cookie-authenticated clients MUST provide valid CSRF token on state-mutating requests
 	if sess != nil && !isBearer && isStateMutating {
 		csrf := r.Header.Get(CSRFHeaderName)
 		if csrf == "" || !om.VerifyCSRFToken(sess.Token, csrf) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error":   "invalid_csrf_token",
-				"message": "Missing or invalid CSRF token on state-mutating request",
-			})
+			writeJSONError(w, http.StatusForbidden, "invalid_csrf_token", "Missing or invalid CSRF token on state-mutating request")
 			return false
 		}
 	}
 
 	return true
+}
+
+func writeJSONError(w http.ResponseWriter, code int, kind, message string) {
+	writeJSON(w, code, map[string]any{"error": kind, "message": message})
+}
+
+// writeJSON writes v as the response body with the given status. Each Go package
+// that answers HTTP has its own copy: a Go function cannot be shared across
+// packages without an import that would couple them.
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func (om *OperatorManager) loadPersistedAPITokens() {

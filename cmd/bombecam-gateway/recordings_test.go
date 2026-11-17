@@ -30,7 +30,7 @@ func TestRecordingsListAndDownload(t *testing.T) {
 
 	t.Run("list", func(t *testing.T) {
 		rr := httptest.NewRecorder()
-		handleRecordings(rr, httptest.NewRequest(http.MethodGet, "/api/v1/recordings", nil))
+		handleRecordings(rr, httptest.NewRequest(http.MethodGet, "/api/v1/recordings", nil), nil)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("code=%d body=%s", rr.Code, rr.Body.String())
 		}
@@ -56,7 +56,7 @@ func TestRecordingsListAndDownload(t *testing.T) {
 	t.Run("download", func(t *testing.T) {
 		rr := httptest.NewRecorder()
 		u := "/api/v1/recordings/download?path=front_porch/2026-11-13_10-00-00.mp4"
-		handleRecordingDownload(rr, httptest.NewRequest(http.MethodGet, u, nil))
+		handleRecordingDownload(rr, httptest.NewRequest(http.MethodGet, u, nil), nil)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("code=%d body=%s", rr.Code, rr.Body.String())
 		}
@@ -68,7 +68,7 @@ func TestRecordingsListAndDownload(t *testing.T) {
 	t.Run("download refuses path escape", func(t *testing.T) {
 		rr := httptest.NewRecorder()
 		u := "/api/v1/recordings/download?path=../secret.txt"
-		handleRecordingDownload(rr, httptest.NewRequest(http.MethodGet, u, nil))
+		handleRecordingDownload(rr, httptest.NewRequest(http.MethodGet, u, nil), nil)
 		if rr.Code == http.StatusOK {
 			t.Fatalf("path escape must be refused, got %d body=%s", rr.Code, rr.Body.String())
 		}
@@ -78,7 +78,7 @@ func TestRecordingsListAndDownload(t *testing.T) {
 func TestRecordingsDisabled(t *testing.T) {
 	setRecordingsRoot("")
 	rr := httptest.NewRecorder()
-	handleRecordings(rr, httptest.NewRequest(http.MethodGet, "/api/v1/recordings", nil))
+	handleRecordings(rr, httptest.NewRequest(http.MethodGet, "/api/v1/recordings", nil), nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("code=%d", rr.Code)
 	}

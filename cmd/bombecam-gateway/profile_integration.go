@@ -88,7 +88,7 @@ func SetActiveProfileManager(pm profile.ProfileManager) {
 }
 
 // runGatewayStartup coordinates startup profile detection, first-run bootstrap, and restart restoration.
-func runGatewayStartup(sm *SessionManager, stm *StreamManager, email, password, country, enrolledF, deviceSel, httpAddr string, optPM ...profile.ProfileManager) {
+func runGatewayStartup(sm *SessionManager, stm *StreamManager, email, password, country, enrolledF, deviceSel, httpAddr string) {
 	ctx := context.Background()
 	profilePath := *profilePathFlag
 	keyFlag := *profileKeyFlag
@@ -101,10 +101,10 @@ func runGatewayStartup(sm *SessionManager, stm *StreamManager, email, password, 
 		_ = os.MkdirAll(dir, 0700)
 	}
 
-	var pm profile.ProfileManager
-	if len(optPM) > 0 && optPM[0] != nil {
-		pm = optPM[0]
-	} else {
+	// The manager main already installed on stm is the one to use; otherwise
+	// build it here, as only this path knows where the profile lives.
+	pm := stm.ProfileManager()
+	if pm == nil {
 		var err error
 		pm, err = profile.NewDefaultManager(profilePath, keyFlag, keyFileFlag)
 		if err != nil || pm == nil {
@@ -112,6 +112,7 @@ func runGatewayStartup(sm *SessionManager, stm *StreamManager, email, password, 
 			sm.SetStatus(SessionStatusUnavailable, fmt.Sprintf("profile key initialization failed: %v", err))
 			return
 		}
+		stm.SetProfileManager(pm)
 	}
 	SetActiveProfileManager(pm)
 
@@ -121,7 +122,7 @@ func runGatewayStartup(sm *SessionManager, stm *StreamManager, email, password, 
 	}
 
 	resume := func() {
-		runGatewayStartupSafely(sm, stm, email, password, country, enrolledF, deviceSel, httpAddr, pm)
+		runGatewayStartupSafely(sm, stm, email, password, country, enrolledF, deviceSel, httpAddr)
 	}
 
 	if !hasProfile {
@@ -457,7 +458,7 @@ func restoreLogin(ctx context.Context, reg *SessionRegistry, pm profile.ProfileM
 		}
 	}
 	fmt.Printf("[session] %s: signed in (UID: %s)\n", email, session.GetStatus().VendorUID)
-	saveLoginToken(email, session.Cloud())
+	saveLoginToken(email, session.Cloud(), currentStreamManager())
 }
 
 // missingFromAccount explains each saved camera of one login that the login
@@ -493,9 +494,9 @@ func missingFromAccount(prof *profile.Profile, email string, live []bridge.Devic
 // runGatewayStartupSafely runs the startup sequence and keeps BombeCam open
 // if it fails unexpectedly: the reason and stack go to gateway.log and the
 // web page shows the problem instead of the window closing.
-func runGatewayStartupSafely(sm *SessionManager, stm *StreamManager, email, password, country, enrolledF, deviceSel, httpAddr string, optPM ...profile.ProfileManager) {
+func runGatewayStartupSafely(sm *SessionManager, stm *StreamManager, email, password, country, enrolledF, deviceSel, httpAddr string) {
 	guardStartup(sm, func() {
-		runGatewayStartup(sm, stm, email, password, country, enrolledF, deviceSel, httpAddr, optPM...)
+		runGatewayStartup(sm, stm, email, password, country, enrolledF, deviceSel, httpAddr)
 	})
 }
 

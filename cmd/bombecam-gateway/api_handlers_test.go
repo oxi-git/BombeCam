@@ -126,7 +126,7 @@ func buildValidADTSFrame() []byte {
 func setupTestEnvironment() (*SessionManager, *StreamManager, *mockControlChannel, *http.ServeMux) {
 	sm := NewSessionManager("39", "test-phone", testServerKey)
 	streamMgr := NewStreamManager(nil, "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", []string{"10.0.0.50"}, false, "ffmpeg")
-	streamMgr.SetRunner(func(ctx context.Context, mc *ManagedCamera, dev bridge.Device, rtpPort int) {
+	streamMgr.SetRunner(func(ctx context.Context, mc *ManagedCamera, rtpPort int) {
 		<-ctx.Done()
 	})
 

@@ -30,7 +30,8 @@ func setupOperatorTokenEnv(t *testing.T) (*SessionManager, *StreamManager, profi
 	sm := NewSessionManager("1", "test-code", testServerKey)
 	streamMgr := NewStreamManager(nil, "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
 
-	mux := SetupAPIMux(sm, streamMgr, pm)
+	streamMgr.SetProfileManager(pm)
+	mux := SetupAPIMux(sm, streamMgr)
 	handler := SecurityBoundaryHandler(mux)
 
 	t.Cleanup(func() {

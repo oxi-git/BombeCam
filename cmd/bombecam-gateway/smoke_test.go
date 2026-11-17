@@ -49,7 +49,8 @@ func TestSmoke_CoreFunctionality(t *testing.T) {
 	SetGatewayOperatorManager(om)
 	t.Cleanup(func() { SetGatewayOperatorManager(nil) })
 
-	mux := SetupAPIMux(sm, streamMgr, pm)
+	streamMgr.SetProfileManager(pm)
+	mux := SetupAPIMux(sm, streamMgr)
 	handler := SecurityBoundaryHandler(mux)
 	server := httptest.NewServer(handler)
 	defer server.Close()

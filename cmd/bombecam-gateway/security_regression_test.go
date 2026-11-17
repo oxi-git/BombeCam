@@ -26,7 +26,8 @@ func securityServer(t *testing.T) (*SessionManager, *StreamManager, profile.Prof
 	sm, stm, pm, _, _, _ := setupFullTestEnvironment(t)
 	om := auth.NewOperatorManager(auth.OperatorConfig{})
 	SetGatewayOperatorManager(om)
-	mux := SetupAPIMux(sm, stm, pm)
+	stm.SetProfileManager(pm)
+	mux := SetupAPIMux(sm, stm)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Exercise the LAN authorization branch without accessing the user's LAN.
 		r.RemoteAddr = "192.0.2.55:12345"
@@ -225,7 +226,8 @@ func TestSecurity_SetupDoesNotOverwriteUnreadableProfile(t *testing.T) {
 	request := httptest.NewRequest("POST", "/api/v1/onboarding/setup", strings.NewReader(`{"account_email":"security@example.test","password":"supplied-secret","force":true}`))
 	request.RemoteAddr = "127.0.0.1:12345" // this PC: no sign-in needed, so the profile check is reached
 	response := httptest.NewRecorder()
-	handleOnboardingSetup(response, request, sm, stm, corruptPM)
+	stm.SetProfileManager(corruptPM)
+	handleOnboardingSetup(response, request, sm, stm)
 	if response.Code != 503 {
 		t.Fatalf("want 503, got %d: %s", response.Code, response.Body.String())
 	}

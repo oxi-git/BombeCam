@@ -267,7 +267,6 @@ func (m *NATManager) GetStatus() NATStatus {
 	}
 }
 
-// ValidateCameraSubnet checks if the camera subnet is a valid CIDR.
 func ValidateCameraSubnet(cidr string) error {
 	_, _, err := net.ParseCIDR(cidr)
 	if err != nil {

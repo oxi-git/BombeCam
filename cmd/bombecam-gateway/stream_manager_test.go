@@ -41,7 +41,7 @@ func TestStreamManager_EnrollmentValidation(t *testing.T) {
 
 	// 2. Enrolling valid IDs succeeds
 	var runnerCalled atomic.Int32
-	sm.SetRunner(func(ctx context.Context, mc *ManagedCamera, dev bridge.Device, rtpPort int) {
+	sm.SetRunner(func(ctx context.Context, mc *ManagedCamera, rtpPort int) {
 		runnerCalled.Add(1)
 		<-ctx.Done()
 	})
@@ -78,7 +78,7 @@ func TestStreamManager_EnrollmentValidation(t *testing.T) {
 
 func TestStreamManager_LockoutVisibilityAndUnlock(t *testing.T) {
 	sm := NewStreamManager(nil, "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
-	sm.SetRunner(func(ctx context.Context, mc *ManagedCamera, dev bridge.Device, rtpPort int) {
+	sm.SetRunner(func(ctx context.Context, mc *ManagedCamera, rtpPort int) {
 		<-ctx.Done()
 	})
 

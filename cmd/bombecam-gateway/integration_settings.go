@@ -329,16 +329,16 @@ func buildIntegrationSettingsView(sm *StreamManager, r *http.Request, pm profile
 	return v
 }
 
-func handleIntegrationSettings(w http.ResponseWriter, r *http.Request, sm *StreamManager, optPM ...profile.ProfileManager) {
-	if !validateOperatorRequest(w, r) {
+func handleIntegrationSettings(w http.ResponseWriter, r *http.Request, sm *StreamManager) {
+	if !validateOperatorRequest(w, r, sm) {
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, buildIntegrationSettingsView(sm, r, getEffectivePM(optPM...)))
+		writeJSON(w, http.StatusOK, buildIntegrationSettingsView(sm, r, sm.ProfileManager()))
 	case http.MethodPost:
-		handleIntegrationSettingsUpdate(w, r, sm, optPM...)
+		handleIntegrationSettingsUpdate(w, r, sm)
 	default:
 		http.Error(w, "GET or POST required", http.StatusMethodNotAllowed)
 	}
@@ -364,8 +364,8 @@ type integrationSettingsUpdate struct {
 func validPort(p int) bool { return p == 0 || (p >= 1024 && p <= 65535) }
 
 // handleIntegrationSettingsUpdate handles POST /api/v1/integrations/settings.
-func handleIntegrationSettingsUpdate(w http.ResponseWriter, r *http.Request, sm *StreamManager, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handleIntegrationSettingsUpdate(w http.ResponseWriter, r *http.Request, sm *StreamManager) {
+	pm, ok := privacyGuard(w, r, sm)
 	if !ok {
 		return
 	}
@@ -516,8 +516,8 @@ func handleIntegrationSettingsUpdate(w http.ResponseWriter, r *http.Request, sm 
 
 // handleCameraStreamName handles POST /api/v1/cameras/{id}/stream-name
 // {"stream_name": "garage"}: renames the camera's friendly stream path.
-func handleCameraStreamName(w http.ResponseWriter, r *http.Request, camID string, sm *StreamManager, optPM ...profile.ProfileManager) {
-	pm := getEffectivePM(optPM...)
+func handleCameraStreamName(w http.ResponseWriter, r *http.Request, camID string, sm *StreamManager) {
+	pm := sm.ProfileManager()
 	if pm == nil || pm.GetProfile() == nil {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "not_configured", "message": "Add your cameras first."})
 		return

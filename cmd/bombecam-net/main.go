@@ -489,9 +489,13 @@ func statusPayload(m *netstack.RulesetManager) map[string]any {
 }
 
 func writeAPIError(w http.ResponseWriter, code int, kind, message string) {
+	writeJSON(w, code, map[string]any{"error": kind, "message": message})
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": kind, "message": message})
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // handleNetConfig serves POST /api/v1/net/config. It does not authenticate;
@@ -534,8 +538,7 @@ func handleNetConfig(w http.ResponseWriter, r *http.Request, m *netstack.Ruleset
 		return
 	}
 	mu.Unlock()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(status())
+	writeJSON(w, http.StatusOK, status())
 }
 
 // runDaemon keeps the saved setting applied: it restores it at boot (a missing
@@ -640,9 +643,7 @@ func runDaemon(o options) {
 		}
 		h := r.Header.Get("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") || strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")) != o.apiKey {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]any{"error": "unauthorized"})
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return false
 		}
 		return true
@@ -650,8 +651,7 @@ func runDaemon(o options) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/net/status", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(statusPayload(m))
+		writeJSON(w, http.StatusOK, statusPayload(m))
 	})
 	mux.HandleFunc("/api/v1/net/config", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -682,8 +682,7 @@ func runDaemon(o options) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": "applied", "block_cloud_video": *req.BlockCloudVideo})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "applied", "block_cloud_video": *req.BlockCloudVideo})
 	})
 	mux.HandleFunc("/api/v1/net/verdict", func(w http.ResponseWriter, r *http.Request) {
 		data, err := os.ReadFile(filepath.Join(o.stateDir, "verdict.json"))

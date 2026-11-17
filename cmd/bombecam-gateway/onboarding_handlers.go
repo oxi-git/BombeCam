@@ -17,25 +17,18 @@ import (
 	"github.com/Fever-r/BombeCam/pkg/profile"
 )
 
-func getEffectivePM(optPM ...profile.ProfileManager) profile.ProfileManager {
-	if len(optPM) > 0 && optPM[0] != nil {
-		return optPM[0]
-	}
-	return ActiveProfileManager()
-}
-
 // ----------------------------------------------------------------------------
 // Onboarding API Endpoints
 // ----------------------------------------------------------------------------
 
 // handleOnboardingStatus handles GET /api/v1/onboarding/status.
-func handleOnboardingStatus(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleOnboardingStatus(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
 	}
 
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	hasProfile := false
 	var prof *profile.Profile
 	if pm != nil {
@@ -187,14 +180,14 @@ type OnboardingSetupRequest struct {
 // quick start. It adds a login to the pool exactly like Osaio logins > Add a
 // login does (other stored logins are not touched) and records this PC's
 // time zone and camera subnets.
-func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
 
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return
 		}
 	}
@@ -205,7 +198,7 @@ func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *S
 		return
 	}
 
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	if pm == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "profile_unavailable", "message": "Profile storage is unavailable. Restore the saved key before signing in."})
 		return
@@ -330,13 +323,13 @@ func handleOnboardingSetup(w http.ResponseWriter, r *http.Request, sessionMgr *S
 }
 
 // handleOnboardingProfile handles GET /api/v1/onboarding/profile.
-func handleOnboardingProfile(w http.ResponseWriter, r *http.Request, optPM ...profile.ProfileManager) {
+func handleOnboardingProfile(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
 	}
 
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	if pm == nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "profile not found: complete first-run setup first"})
 		return
@@ -381,19 +374,19 @@ func clearAllButAdmin(ctx context.Context, pm profile.ProfileManager) bool {
 // Delete all stored information. Osaio logins, cameras, router rules and key,
 // and settings go; the administrator's sign-in stays (it changes only under
 // Sign-in settings).
-func handleOnboardingReset(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleOnboardingReset(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
 		http.Error(w, "DELETE or POST required", http.StatusMethodNotAllowed)
 		return
 	}
 
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return
 		}
 	}
 
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	writeJSON(w, http.StatusOK, resetStoredInformation(r.Context(), sessionMgr, streamMgr, pm, true))
 }
 
@@ -474,8 +467,8 @@ func resetStoredInformation(ctx context.Context, sessionMgr *SessionManager, str
 // ----------------------------------------------------------------------------
 
 // handleCameraDiscover handles GET /api/v1/onboarding/cameras/discover and GET /api/v1/inventory/discover.
-func handleCameraDiscover(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	if !validateOperatorRequest(w, r) {
+func handleCameraDiscover(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
+	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 
@@ -502,7 +495,7 @@ func handleCameraDiscover(w http.ResponseWriter, r *http.Request, sessionMgr *Se
 		return
 	}
 
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	var prof *profile.Profile
 	if pm != nil {
 		prof = pm.GetProfile()
@@ -555,14 +548,14 @@ func handleCameraDiscover(w http.ResponseWriter, r *http.Request, sessionMgr *Se
 }
 
 // handleCameraEnroll handles POST /api/v1/onboarding/cameras/enroll and POST /api/v1/inventory/enroll.
-func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
 
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return
 		}
 	}
@@ -620,7 +613,7 @@ func handleCameraEnroll(w http.ResponseWriter, r *http.Request, sessionMgr *Sess
 	}
 
 	// Persist enrolled cameras into encrypted profile so daemon restart restores them
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	if pm != nil {
 		ctx := r.Context()
 		devMap := make(map[string]bridge.Device)
@@ -791,7 +784,7 @@ func handleDedicatedPTZ(w http.ResponseWriter, r *http.Request, camID string, st
 
 // handleCameraStream handles GET /api/v1/cameras/{id}/stream.
 func handleCameraStream(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
-	if !validateOperatorRequest(w, r) {
+	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 
@@ -901,7 +894,7 @@ func handleGatewayStart(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 		return
 	}
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return
 		}
 	}
@@ -924,7 +917,7 @@ func handleGatewayStop(w http.ResponseWriter, r *http.Request, streamMgr *Stream
 	}
 
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return
 		}
 	}

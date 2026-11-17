@@ -31,14 +31,15 @@ func setupFullTestEnvironment(t *testing.T) (*SessionManager, *StreamManager, pr
 
 	sm := NewSessionManager("1", "test-phone-code", testServerKey)
 	streamMgr := NewStreamManager(nil, "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
-	streamMgr.SetRunner(func(ctx context.Context, mc *ManagedCamera, dev bridge.Device, rtpPort int) {
+	streamMgr.SetRunner(func(ctx context.Context, mc *ManagedCamera, rtpPort int) {
 		<-ctx.Done()
 	})
 
 	mockCC := &mockControlChannel{irMode: 1, ledOn: true}
 	SetGatewayControlChannel(mockCC)
 
-	mux := SetupAPIMux(sm, streamMgr, pm)
+	streamMgr.SetProfileManager(pm)
+	mux := SetupAPIMux(sm, streamMgr)
 	return sm, streamMgr, pm, mockCC, mux, profilePath
 }
 
@@ -581,7 +582,7 @@ func TestOnboarding_CameraEnrollment_Persistence_And_RestartRecovery(t *testing.
 	freshSM := NewSessionManager("1", "test-phone-code", testServerKey)
 	freshSM.Cloud().GlobalBase = mockURL
 	freshStreamMgr := NewStreamManager(freshSM.Cloud(), "rtsp://127.0.0.1:8554", "http://127.0.0.1:8888", nil, false, "ffmpeg")
-	freshStreamMgr.SetRunner(func(ctx context.Context, mc *ManagedCamera, dev bridge.Device, rtpPort int) {
+	freshStreamMgr.SetRunner(func(ctx context.Context, mc *ManagedCamera, rtpPort int) {
 		<-ctx.Done()
 	})
 

@@ -42,13 +42,13 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 // cameras can reconnect after a restart; nothing is enrolled until the user adds.
 //
 // POST /api/v1/cameras/search  {email, password}
-func handleCameraSearch(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleCameraSearch(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return
 		}
 	}
@@ -67,7 +67,7 @@ func handleCameraSearch(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "session registry unavailable"})
 		return
 	}
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	var saved *profile.Profile
 	if pm != nil {
 		saved, _ = pm.Load(r.Context())
@@ -127,13 +127,13 @@ func handleCameraSearch(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 // merging them alongside cameras from other logins (never removing them).
 //
 // POST /api/v1/cameras/add  {email, camera_ids}
-func handleCameraAdd(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleCameraAdd(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return
 		}
 	}
@@ -173,7 +173,7 @@ func handleCameraAdd(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 		}
 	}
 
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 
 	// Build the union desired set (existing enrolled + newly requested) and a
 	// combined inventory so Enroll keeps other logins' cameras running.
@@ -247,14 +247,14 @@ func handleCameraAdd(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 // says the router still has it).
 //
 // DELETE /api/v1/cameras/{id}
-func handleCameraRemove(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleCameraRemove(w http.ResponseWriter, r *http.Request, camID string, streamMgr *StreamManager) {
 	camID = strings.TrimSpace(camID)
 	if camID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "camera id required"})
 		return
 	}
 
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	onRouter := false
 	if pm != nil {
 		if prof := pm.GetProfile(); prof != nil {

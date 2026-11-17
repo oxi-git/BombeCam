@@ -456,29 +456,14 @@ func ResolveOrEnsureProtectedKey(keyPath string) ([]byte, error) {
 // 3. Keyfile at keyFilePath (or env BOMBECAM_PROFILE_KEY_FILE)
 // 4. Auto-generated keyfile at keyFilePath if specified
 func ResolveKey(directKey, keyFilePath string) ([]byte, error) {
-	// 1. Direct parameter
 	if directKey != "" {
-		trimmed := strings.TrimSpace(directKey)
-		if len(trimmed) == 64 {
-			if raw, err := hex.DecodeString(trimmed); err == nil && len(raw) == 32 {
-				return raw, nil
-			}
-		}
-		return []byte(trimmed), nil
+		return decodeKey(directKey), nil
 	}
 
-	// 2. Environment variable
 	if envKey := os.Getenv("BOMBECAM_PROFILE_KEY"); envKey != "" {
-		trimmed := strings.TrimSpace(envKey)
-		if len(trimmed) == 64 {
-			if raw, err := hex.DecodeString(trimmed); err == nil && len(raw) == 32 {
-				return raw, nil
-			}
-		}
-		return []byte(trimmed), nil
+		return decodeKey(envKey), nil
 	}
 
-	// 3. Keyfile path
 	resolvedKeyFile := keyFilePath
 	if resolvedKeyFile == "" {
 		resolvedKeyFile = os.Getenv("BOMBECAM_PROFILE_KEY_FILE")
@@ -489,4 +474,15 @@ func ResolveKey(directKey, keyFilePath string) ([]byte, error) {
 	}
 
 	return nil, nil
+}
+
+// decodeKey reads a key given as 64 hex characters or as raw bytes.
+func decodeKey(key string) []byte {
+	trimmed := strings.TrimSpace(key)
+	if len(trimmed) == 64 {
+		if raw, err := hex.DecodeString(trimmed); err == nil && len(raw) == 32 {
+			return raw
+		}
+	}
+	return []byte(trimmed)
 }

@@ -243,7 +243,6 @@ func (m *MockDiscovery) FindInterfaceForIP(ip net.IP) (*NetworkInterface, *net.I
 	return nil, nil, fmt.Errorf("no mock interface for IP %s", ip)
 }
 
-// IsIPInHostSubnets checks if IP is in any mock host subnet.
 func (m *MockDiscovery) IsIPInHostSubnets(ip net.IP) bool {
 	subnets, err := m.DetectHostSubnets()
 	if err != nil {

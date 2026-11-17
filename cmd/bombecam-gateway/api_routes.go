@@ -13,11 +13,10 @@ import (
 	"github.com/Fever-r/BombeCam/internal/ui"
 	"github.com/Fever-r/BombeCam/pkg/auth"
 	"github.com/Fever-r/BombeCam/pkg/bridge"
-	"github.com/Fever-r/BombeCam/pkg/profile"
 )
 
 // SetupAPIMux registers both the modern REST API (/api/v1/...) and legacy endpoints.
-func SetupAPIMux(sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) *http.ServeMux {
+func SetupAPIMux(sessionMgr *SessionManager, streamMgr *StreamManager) *http.ServeMux {
 	// Every handler reaches the Osaio logins through the pool; sessionMgr is
 	// only its template.
 	if reg := GatewaySessions(); sessionMgr != nil && (reg == nil || reg.Template() != sessionMgr) {
@@ -25,13 +24,13 @@ func SetupAPIMux(sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...
 	}
 	mux := http.NewServeMux()
 
-	registerOperatorRoutes(mux, sessionMgr, streamMgr, optPM...)
-	registerOnboardingRoutes(mux, sessionMgr, streamMgr, optPM...)
-	registerPrivacyRoutes(mux, streamMgr, optPM...)
-	registerIntegrationRoutes(mux, streamMgr, optPM...)
-	registerRecordingRoutes(mux)
-	registerCameraRoutes(mux, sessionMgr, streamMgr, optPM...)
-	registerLegacyRoutes(mux, streamMgr, optPM...)
+	registerOperatorRoutes(mux, sessionMgr, streamMgr)
+	registerOnboardingRoutes(mux, sessionMgr, streamMgr)
+	registerPrivacyRoutes(mux, streamMgr)
+	registerIntegrationRoutes(mux, streamMgr)
+	registerRecordingRoutes(mux, streamMgr)
+	registerCameraRoutes(mux, sessionMgr, streamMgr)
+	registerLegacyRoutes(mux, streamMgr)
 
 	mux.Handle("/", ui.Handler())
 	return mux
@@ -40,7 +39,7 @@ func SetupAPIMux(sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...
 // registerOperatorRoutes registers the operator session, CSRF and API token
 // endpoints. These authenticate the administrator, so they check the caller
 // themselves instead of going through the security boundary handler.
-func registerOperatorRoutes(mux *http.ServeMux, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func registerOperatorRoutes(mux *http.ServeMux, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	csrfHandler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)
@@ -77,12 +76,12 @@ func registerOperatorRoutes(mux *http.ServeMux, sessionMgr *SessionManager, stre
 	mux.HandleFunc("/api/v1/operator/csrf", csrfHandler)
 
 	tokenHandler := func(w http.ResponseWriter, r *http.Request) {
-		handleOperatorToken(w, r, optPM...)
+		handleOperatorToken(w, r, streamMgr)
 	}
 	mux.HandleFunc("/api/v1/operator/token", tokenHandler)
-	registerAdminRoutes(mux)
+	registerAdminRoutes(mux, streamMgr)
 	mux.HandleFunc("/api/v1/admin/start-over", func(w http.ResponseWriter, r *http.Request) {
-		handleAdminStartOver(w, r, sessionMgr, streamMgr, optPM...)
+		handleAdminStartOver(w, r, sessionMgr, streamMgr)
 	})
 
 	mux.HandleFunc("/api/v1/session/status", func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +96,7 @@ func registerOperatorRoutes(mux *http.ServeMux, sessionMgr *SessionManager, stre
 // handleOperatorToken exchanges verified operator credentials for an API token.
 // The administrator's name and password (and two-step code, if on) are the only
 // credentials that grant access to BombeCam; an Osaio login never does.
-func handleOperatorToken(w http.ResponseWriter, r *http.Request, optPM ...profile.ProfileManager) {
+func handleOperatorToken(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
@@ -175,7 +174,7 @@ func handleOperatorToken(w http.ResponseWriter, r *http.Request, optPM ...profil
 			}
 		}
 		if creds.Password != "" {
-			if pm := getEffectivePM(optPM...); pm != nil && pm.GetProfile() != nil {
+			if pm := streamMgr.ProfileManager(); pm != nil && pm.GetProfile() != nil {
 				admin, exists := pm.GetProfile().Admin()
 				nameOK := strings.TrimSpace(creds.Name) == "" || strings.EqualFold(strings.TrimSpace(creds.Name), admin.Name)
 				if exists && nameOK && auth.VerifyPassword(admin.PasswordHash.Expose(), creds.Password) {
@@ -230,9 +229,9 @@ func bearerToken(r *http.Request) (string, bool) {
 
 // registerOnboardingRoutes registers first-run setup, the Osaio logins the
 // gateway uses to find cameras, and the add/remove camera lifecycle.
-func registerOnboardingRoutes(mux *http.ServeMux, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func registerOnboardingRoutes(mux *http.ServeMux, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	mux.HandleFunc("/api/v1/onboarding/status", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardingStatus(w, r, sessionMgr, streamMgr, optPM...)
+		handleOnboardingStatus(w, r, sessionMgr, streamMgr)
 	})
 
 	// Osaio app ID and server key: status (never the value) and saving a new one.
@@ -244,45 +243,45 @@ func registerOnboardingRoutes(mux *http.ServeMux, sessionMgr *SessionManager, st
 	})
 
 	mux.HandleFunc("/api/v1/onboarding/setup", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardingSetup(w, r, sessionMgr, streamMgr, optPM...)
+		handleOnboardingSetup(w, r, sessionMgr, streamMgr)
 	})
 
 	mux.HandleFunc("/api/v1/onboarding/profile", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			handleOnboardingProfile(w, r, optPM...)
+			handleOnboardingProfile(w, r, streamMgr)
 		case http.MethodDelete:
-			handleOnboardingReset(w, r, sessionMgr, streamMgr, optPM...)
+			handleOnboardingReset(w, r, sessionMgr, streamMgr)
 		default:
 			http.Error(w, "GET or DELETE required", http.StatusMethodNotAllowed)
 		}
 	})
 
 	mux.HandleFunc("/api/v1/onboarding/reset", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardingReset(w, r, sessionMgr, streamMgr, optPM...)
+		handleOnboardingReset(w, r, sessionMgr, streamMgr)
 	})
 
 	// Onboarding aliases.
 	mux.HandleFunc("/api/v1/setup", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			handleOnboardingStatus(w, r, sessionMgr, streamMgr, optPM...)
+			handleOnboardingStatus(w, r, sessionMgr, streamMgr)
 		case http.MethodPost:
-			handleOnboardingSetup(w, r, sessionMgr, streamMgr, optPM...)
+			handleOnboardingSetup(w, r, sessionMgr, streamMgr)
 		default:
 			http.Error(w, "GET or POST required", http.StatusMethodNotAllowed)
 		}
 	})
 
 	discoverHandler := func(w http.ResponseWriter, r *http.Request) {
-		handleCameraDiscover(w, r, sessionMgr, streamMgr, optPM...)
+		handleCameraDiscover(w, r, sessionMgr, streamMgr)
 	}
 	mux.HandleFunc("/api/v1/onboarding/cameras/discover", discoverHandler)
 	mux.HandleFunc("/api/v1/inventory/discover", discoverHandler)
 	mux.HandleFunc("/api/v1/devices/discover", discoverHandler)
 
 	enrollHandler := func(w http.ResponseWriter, r *http.Request) {
-		handleCameraEnroll(w, r, sessionMgr, streamMgr, optPM...)
+		handleCameraEnroll(w, r, sessionMgr, streamMgr)
 	}
 	mux.HandleFunc("/api/v1/onboarding/cameras/enroll", enrollHandler)
 	mux.HandleFunc("/api/v1/inventory/enroll", enrollHandler)
@@ -291,70 +290,70 @@ func registerOnboardingRoutes(mux *http.ServeMux, sessionMgr *SessionManager, st
 	// Add-cameras lifecycle: reusable per-login search, additive add, and
 	// per-camera remove. These coexist with the legacy discover/enroll routes.
 	mux.HandleFunc("/api/v1/cameras/search", func(w http.ResponseWriter, r *http.Request) {
-		handleCameraSearch(w, r, streamMgr, optPM...)
+		handleCameraSearch(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/cameras/add", func(w http.ResponseWriter, r *http.Request) {
-		handleCameraAdd(w, r, streamMgr, optPM...)
+		handleCameraAdd(w, r, streamMgr)
 	})
 
 	// Osaio logins: the pool of logins used to find and reach cameras.
 	mux.HandleFunc("/api/v1/accounts", func(w http.ResponseWriter, r *http.Request) {
-		handleAccountsList(w, r, optPM...)
+		handleAccountsList(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/accounts/signin", func(w http.ResponseWriter, r *http.Request) {
-		handleAccountSignIn(w, r, sessionMgr, streamMgr, optPM...)
+		handleAccountSignIn(w, r, sessionMgr, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/accounts/cameras", func(w http.ResponseWriter, r *http.Request) {
-		handleAccountCameras(w, r, streamMgr, optPM...)
+		handleAccountCameras(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/accounts/remove", func(w http.ResponseWriter, r *http.Request) {
-		handleAccountRemove(w, r, sessionMgr, streamMgr, optPM...)
+		handleAccountRemove(w, r, sessionMgr, streamMgr)
 	})
 
 	// Delete all stored information (logins and cameras); returns to first-run.
 	mux.HandleFunc("/api/v1/profile/forget", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardingReset(w, r, sessionMgr, streamMgr, optPM...)
+		handleOnboardingReset(w, r, sessionMgr, streamMgr)
 	})
 }
 
 // registerPrivacyRoutes registers the "block cloud video?" router allowlist,
 // the gateway start/stop controls and the favicon.
-func registerPrivacyRoutes(mux *http.ServeMux, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func registerPrivacyRoutes(mux *http.ServeMux, streamMgr *StreamManager) {
 	mux.HandleFunc("/api/v1/control/status", func(w http.ResponseWriter, r *http.Request) {
 		handleControlStatus(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy", func(w http.ResponseWriter, r *http.Request) {
-		handlePrivacyStatus(w, r, streamMgr, optPM...)
+		handlePrivacyStatus(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/apply", func(w http.ResponseWriter, r *http.Request) {
-		handlePrivacyApply(w, r, streamMgr, optPM...)
+		handlePrivacyApply(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/camera", func(w http.ResponseWriter, r *http.Request) {
-		handlePrivacyCamera(w, r, streamMgr, optPM...)
+		handlePrivacyCamera(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/block-all", func(w http.ResponseWriter, r *http.Request) {
-		handlePrivacyBlockAll(w, r, streamMgr, optPM...)
+		handlePrivacyBlockAll(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/router/connect", func(w http.ResponseWriter, r *http.Request) {
-		handleRouterConnect(w, r, streamMgr, optPM...)
+		handleRouterConnect(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/router/disconnect", func(w http.ResponseWriter, r *http.Request) {
-		handleRouterDisconnect(w, r, streamMgr, optPM...)
+		handleRouterDisconnect(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/router/check", func(w http.ResponseWriter, r *http.Request) {
-		handleRouterCheck(w, r, streamMgr, optPM...)
+		handleRouterCheck(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/check", func(w http.ResponseWriter, r *http.Request) {
-		handlePrivacyCheck(w, r, streamMgr, optPM...)
+		handlePrivacyCheck(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/backend", func(w http.ResponseWriter, r *http.Request) {
-		handlePrivacyBackend(w, r, streamMgr, optPM...)
+		handlePrivacyBackend(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/region", func(w http.ResponseWriter, r *http.Request) {
-		handlePrivacyRegion(w, r, streamMgr, optPM...)
+		handlePrivacyRegion(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/forget-router", func(w http.ResponseWriter, r *http.Request) {
-		handlePrivacyForgetRouter(w, r, optPM...)
+		handlePrivacyForgetRouter(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/privacy/router-script", handlePrivacyRouterScript)
 
@@ -364,36 +363,36 @@ func registerPrivacyRoutes(mux *http.ServeMux, streamMgr *StreamManager, optPM .
 	mux.HandleFunc("/api/v1/gateway/stop", func(w http.ResponseWriter, r *http.Request) {
 		handleGatewayStop(w, r, streamMgr)
 	})
-	mux.HandleFunc("/api/v1/gateway/shutdown", handleGatewayShutdown)
+	mux.HandleFunc("/api/v1/gateway/shutdown", func(w http.ResponseWriter, r *http.Request) { handleGatewayShutdown(w, r, streamMgr) })
 	mux.HandleFunc("/api/v1/gateway/info", handleGatewayInfo)
-	mux.HandleFunc("/api/v1/gateway/autostart", handleAutostart)
+	mux.HandleFunc("/api/v1/gateway/autostart", func(w http.ResponseWriter, r *http.Request) { handleAutostart(w, r, streamMgr) })
 	mux.HandleFunc("/favicon.ico", handleFavicon)
 }
 
 // registerIntegrationRoutes registers the third-party integrations (Frigate,
 // Home Assistant) and the settings that point them at this gateway.
-func registerIntegrationRoutes(mux *http.ServeMux, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func registerIntegrationRoutes(mux *http.ServeMux, streamMgr *StreamManager) {
 	mux.HandleFunc("/api/v1/integrations/frigate", func(w http.ResponseWriter, r *http.Request) {
-		handleFrigateIntegration(w, r, streamMgr, optPM...)
+		handleFrigateIntegration(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/integrations/homeassistant", func(w http.ResponseWriter, r *http.Request) {
-		handleHomeAssistantIntegration(w, r, streamMgr, optPM...)
+		handleHomeAssistantIntegration(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/integrations/streams", func(w http.ResponseWriter, r *http.Request) {
-		handleStreamsIntegration(w, r, streamMgr, optPM...)
+		handleStreamsIntegration(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/integrations/settings", func(w http.ResponseWriter, r *http.Request) {
-		handleIntegrationSettings(w, r, streamMgr, optPM...)
+		handleIntegrationSettings(w, r, streamMgr)
 	})
 }
 
 // registerRecordingRoutes registers the local recording browser and download.
-func registerRecordingRoutes(mux *http.ServeMux) {
+func registerRecordingRoutes(mux *http.ServeMux, streamMgr *StreamManager) {
 	mux.HandleFunc("/api/v1/recordings", func(w http.ResponseWriter, r *http.Request) {
-		handleRecordings(w, r)
+		handleRecordings(w, r, streamMgr)
 	})
 	mux.HandleFunc("/api/v1/recordings/download", func(w http.ResponseWriter, r *http.Request) {
-		handleRecordingDownload(w, r)
+		handleRecordingDownload(w, r, streamMgr)
 	})
 }
 
@@ -401,9 +400,9 @@ func registerRecordingRoutes(mux *http.ServeMux) {
 //
 // The camera id is the first path segment; everything else is matched here.
 // A path that matches no route falls through to http.NotFound.
-func registerCameraRoutes(mux *http.ServeMux, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func registerCameraRoutes(mux *http.ServeMux, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	mux.HandleFunc("/api/v1/cameras/", func(w http.ResponseWriter, r *http.Request) {
-		if !validateOperatorRequest(w, r) {
+		if !validateOperatorRequest(w, r, streamMgr) {
 			return
 		}
 		relPath := strings.TrimPrefix(r.URL.Path, "/api/v1/cameras/")
@@ -413,18 +412,18 @@ func registerCameraRoutes(mux *http.ServeMux, sessionMgr *SessionManager, stream
 			return
 		}
 		camID := parts[0]
-		handleCameraRoute(w, r, camID, parts, sessionMgr, streamMgr, optPM...)
+		handleCameraRoute(w, r, camID, parts, sessionMgr, streamMgr)
 	})
 }
 
 // handleCameraRoute dispatches one /api/v1/cameras/{id}/... request. parts is
 // the path split on "/" with parts[0] the camera id.
-func handleCameraRoute(w http.ResponseWriter, r *http.Request, camID string, parts []string, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleCameraRoute(w http.ResponseWriter, r *http.Request, camID string, parts []string, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	get, post := r.Method == http.MethodGet, r.Method == http.MethodPost
 
 	switch {
 	case len(parts) == 1 && r.Method == http.MethodDelete:
-		handleCameraRemove(w, r, camID, streamMgr, optPM...)
+		handleCameraRemove(w, r, camID, streamMgr)
 
 	case len(parts) == 2 && parts[1] == "status" && get:
 		mc, ok := streamMgr.GetCamera(camID)
@@ -468,7 +467,7 @@ func handleCameraRoute(w http.ResponseWriter, r *http.Request, camID string, par
 		handleSnapshot(w, r, streamMgr, camID)
 
 	case len(parts) == 2 && parts[1] == "stream-name" && post:
-		handleCameraStreamName(w, r, camID, streamMgr, optPM...)
+		handleCameraStreamName(w, r, camID, streamMgr)
 
 	case len(parts) >= 3 && parts[1] == "hls" && (get || r.Method == http.MethodHead):
 		handleHLSRelay(w, r, camID, strings.Join(parts[2:], "/"), streamMgr)
@@ -528,7 +527,7 @@ func handleCameraMode(w http.ResponseWriter, r *http.Request, camID string, stre
 
 // registerLegacyRoutes registers the pre-/api/v1 endpoints the web page and
 // integrations still call. Each takes ?cam= (a UUID or a camera name).
-func registerLegacyRoutes(mux *http.ServeMux, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func registerLegacyRoutes(mux *http.ServeMux, streamMgr *StreamManager) {
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		handleLegacyStatus(w, r, streamMgr)
 	})
@@ -563,10 +562,10 @@ func registerLegacyRoutes(mux *http.ServeMux, streamMgr *StreamManager, optPM ..
 		handleLegacyCommand(w, r)
 	})
 	mux.HandleFunc("/talk/start", func(w http.ResponseWriter, r *http.Request) {
-		handleLegacyTalkStart(w, r)
+		handleLegacyTalkStart(w, r, streamMgr)
 	})
 	mux.HandleFunc("/talk/stop", func(w http.ResponseWriter, r *http.Request) {
-		handleLegacyTalkStop(w, r)
+		handleLegacyTalkStop(w, r, streamMgr)
 	})
 	mux.HandleFunc("/talk/stream", func(w http.ResponseWriter, r *http.Request) {
 		handleLegacyTalkStream(w, r)
@@ -698,7 +697,7 @@ func ptzDirection(s string) (int, bool) {
 }
 
 func handleLegacyPTZ(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r)) {
+	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
 		return
 	}
 	dir, ok := ptzDirection(r.URL.Query().Get("dir"))
@@ -730,7 +729,7 @@ func handleLegacyPTZ(w http.ResponseWriter, r *http.Request, streamMgr *StreamMa
 }
 
 func handleLegacyIR(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r)) {
+	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
 		return
 	}
 	irMode, okMode := bridge.ParseIRMode(r.URL.Query().Get("mode"))
@@ -793,7 +792,7 @@ func legacyOnOff(s string) (int, bool) {
 }
 
 func handleLegacyLED(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r)) {
+	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
 		return
 	}
 	val, ok := legacyOnOff(r.URL.Query().Get("mode"))
@@ -855,7 +854,7 @@ func onOffName(val int) string {
 }
 
 func handleLegacyLight(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
-	if !allowLegacyPost(w, r, signInRequired(r)) {
+	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
 		return
 	}
 	val, ok := legacyOnOff(r.URL.Query().Get("mode"))
@@ -968,8 +967,8 @@ func handleLegacyCommand(w http.ResponseWriter, r *http.Request) {
 // handleLegacyTalkStart arms talk on the camera's media session. Without a live
 // viewer it arms the control channel instead, which is all a firewall backend
 // can do.
-func handleLegacyTalkStart(w http.ResponseWriter, r *http.Request) {
-	if !allowLegacyPost(w, r, signInRequired(r)) {
+func handleLegacyTalkStart(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
 		return
 	}
 	cam := r.URL.Query().Get("cam")
@@ -992,8 +991,8 @@ func handleLegacyTalkStart(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func handleLegacyTalkStop(w http.ResponseWriter, r *http.Request) {
-	if !allowLegacyPost(w, r, signInRequired(r)) {
+func handleLegacyTalkStop(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	if !allowLegacyPost(w, r, signInRequired(r, streamMgr)) {
 		return
 	}
 	cam := r.URL.Query().Get("cam")

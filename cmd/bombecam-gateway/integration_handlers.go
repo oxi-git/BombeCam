@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Fever-r/BombeCam/pkg/bridge"
-	"github.com/Fever-r/BombeCam/pkg/profile"
 )
 
 // FrigateDocsVersion is the Frigate release whose documentation the
@@ -405,8 +404,8 @@ func (sm *StreamManager) portMappings(r *http.Request) globalPortMappings {
 
 // handleFrigateIntegration handles GET /api/v1/integrations/frigate
 // (?format=yaml, ?variant=new, ?roles=detect,record, ?camera=<id|name>).
-func handleFrigateIntegration(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	if !validateOperatorRequest(w, r) {
+func handleFrigateIntegration(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 
@@ -551,8 +550,8 @@ func haSetupSteps(c integrationCamera, g haGenericCamera) string {
 // handleHomeAssistantIntegration handles GET /api/v1/integrations/homeassistant.
 // Home Assistant deprecated YAML setup of Generic Camera, so this returns the
 // values for its UI (and ?format=text the step-by-step text).
-func handleHomeAssistantIntegration(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	if !validateOperatorRequest(w, r) {
+func handleHomeAssistantIntegration(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 
@@ -657,8 +656,8 @@ type streamsIntegrationResponse struct {
 }
 
 // handleStreamsIntegration handles GET /api/v1/integrations/streams
-func handleStreamsIntegration(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	if !validateOperatorRequest(w, r) {
+func handleStreamsIntegration(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 

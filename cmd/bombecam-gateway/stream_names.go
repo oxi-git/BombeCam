@@ -245,7 +245,7 @@ func runIntegrationLoop(ctx context.Context, sm *StreamManager) {
 	t := time.NewTicker(20 * time.Second)
 	defer t.Stop()
 	for {
-		names := syncStreamNames(ctx, ActiveProfileManager(), sm)
+		names := syncStreamNames(ctx, sm.ProfileManager(), sm)
 		if ok, _ := mediaServerHealth(); ok {
 			_, apiBase := currentMediaRuntime()
 			err := syncMediaAliases(apiBase, sm.RTSPPort(), names)

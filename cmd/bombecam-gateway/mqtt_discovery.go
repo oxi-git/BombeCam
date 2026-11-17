@@ -458,9 +458,7 @@ func cameraMQTTState(sm *StreamManager, id string, ready map[string]bool) map[st
 		st["connection"] = "Connecting"
 	}
 	controls := false
-	sigMu.RLock()
-	cs := sigMap[id]
-	sigMu.RUnlock()
+	cs := signalingFor(id)
 	if cs != nil && cs.sig != nil && cs.sig.Connected() {
 		controls = true
 	}

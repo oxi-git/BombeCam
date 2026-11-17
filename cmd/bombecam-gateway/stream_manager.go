@@ -308,7 +308,7 @@ func (mc *ManagedCamera) GetRTPPort() int {
 }
 
 // CameraRunner defines the function signature for running a camera's media stream.
-type CameraRunner func(ctx context.Context, mc *ManagedCamera, dev bridge.Device, rtpPort int)
+type CameraRunner func(ctx context.Context, mc *ManagedCamera, rtpPort int)
 
 // StreamManager coordinates camera enrollment, stream lifecycle, and persistent camera state.
 type StreamManager struct {
@@ -323,14 +323,21 @@ type StreamManager struct {
 	cameraIPs        []string
 	allowedSubnets   []*net.IPNet
 	strictManual     bool
-	ffmpegPath       string
-	cloud            *bridge.Cloud
-	cloudResolver    func(uuid string) *bridge.Cloud // per-camera owning-account cloud; nil -> use cloud
-	loginRenewer     func(old *bridge.Cloud) *bridge.Cloud
-	runner           CameraRunner
-	portBase         int
-	publisher        string
-	retryMaxWait     time.Duration
+	// localControlTest makes a stream end in lockout and closes signaling once
+	// media flows, so the local firewall path can be exercised without a real
+	// outage. Set once at startup by -local-control-test.
+	localControlTest bool
+	// profileManager is where camera credentials and settings live. Set once
+	// at startup; handlers read it instead of reaching for a global.
+	profileManager profile.ProfileManager
+	ffmpegPath     string
+	cloud          *bridge.Cloud
+	cloudResolver  func(uuid string) *bridge.Cloud // per-camera owning-account cloud; nil -> use cloud
+	loginRenewer   func(old *bridge.Cloud) *bridge.Cloud
+	runner         CameraRunner
+	portBase       int
+	publisher      string
+	retryMaxWait   time.Duration
 
 	// Advertised addresses for NVRs / Home Assistant (see lan_address.go).
 	nvrAddress  string            // chosen LAN address ("" = automatic)
@@ -375,6 +382,38 @@ func (sm *StreamManager) SetAllowedSubnet(cidr string) error {
 	}
 	sm.SetAllowedSubnets([]*net.IPNet{ipNet})
 	return nil
+}
+
+// SetLocalControlTest enables the local-firewall test mode: a stream that ends
+// goes straight to lockout instead of retrying, and signaling is closed once
+// media flows.
+func (sm *StreamManager) SetLocalControlTest(on bool) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.localControlTest = on
+}
+
+// LocalControlTest reports whether test mode is on.
+func (sm *StreamManager) LocalControlTest() bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.localControlTest
+}
+
+// SetProfileManager is the profile store handlers and the stream loop read
+// credentials and settings from.
+func (sm *StreamManager) SetProfileManager(pm profile.ProfileManager) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.profileManager = pm
+}
+
+// ProfileManager returns the profile store in use, or nil before startup has
+// installed one.
+func (sm *StreamManager) ProfileManager() profile.ProfileManager {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.profileManager
 }
 
 // AllowedSubnets returns a copy of configured allowed subnets.
@@ -756,7 +795,6 @@ func (sm *StreamManager) Enroll(cameraIDs []string, inventory []bridge.Device) (
 			if mc.CancelStream != nil {
 				mc.CancelStream()
 			}
-			unregisterCameraSession(uuid)
 			delete(sm.cameras, uuid)
 		}
 	}
@@ -800,7 +838,6 @@ func (sm *StreamManager) Enroll(cameraIDs []string, inventory []bridge.Device) (
 
 			ctx, cancel := context.WithCancel(context.Background())
 			session := NewCameraSession(dev.UUID, dev.Name, sm.strictManual)
-			registerCameraSession(session)
 
 			publishBase := sm.publishRTSPBaseLocked()
 			consumerRTSP := sm.consumerRTSPBase
@@ -824,18 +861,17 @@ func (sm *StreamManager) Enroll(cameraIDs []string, inventory []bridge.Device) (
 			sm.cameras[id] = mc
 
 			if sm.runner != nil {
-				go sm.runner(ctx, mc, dev, rtpPort)
+				go sm.runner(ctx, mc, rtpPort)
 			}
 		} else if mc.CancelStream == nil {
 			dev := invMap[id]
 			ctx, cancel := context.WithCancel(context.Background())
 			session := NewCameraSession(dev.UUID, dev.Name, sm.strictManual)
-			registerCameraSession(session)
 			mc.Session = session
 			mc.CancelStream = cancel
 			mc.Freshness = time.Now().UTC()
 			if sm.runner != nil {
-				go sm.runner(ctx, mc, dev, mc.RTPPort)
+				go sm.runner(ctx, mc, mc.RTPPort)
 			}
 		}
 		idx++
@@ -854,6 +890,83 @@ func (sm *StreamManager) GetCamera(uuid string) (*ManagedCamera, bool) {
 	defer sm.mu.RUnlock()
 	mc, ok := sm.cameras[uuid]
 	return mc, ok
+}
+
+// cameraSessionByName resolves a camera the way the legacy routes name it: by
+// UUID or by name, exactly or as a fragment. Returns nil when no enrolled
+// camera matches.
+func cameraSessionByName(streamMgr *StreamManager, ref string) *CameraSession {
+	if streamMgr == nil {
+		return nil
+	}
+	mc, ok := streamMgr.ResolveCamera(ref)
+	if !ok {
+		return nil
+	}
+	mc.mu.RLock()
+	defer mc.mu.RUnlock()
+	return mc.Session
+}
+
+// ResolveCamera finds an enrolled camera by exact UUID, then by name, then by
+// a case-insensitive fragment of either. It is the only way a request names a
+// camera: the legacy routes took a `cam` query parameter that was a UUID or a
+// name, and callers should not each reproduce the matching rules.
+func (sm *StreamManager) ResolveCamera(ref string) (*ManagedCamera, bool) {
+	if ref == "" {
+		return nil, false
+	}
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	if mc, ok := sm.cameras[ref]; ok {
+		return mc, true
+	}
+	for _, mc := range sm.cameras {
+		if strings.EqualFold(mc.Name, ref) {
+			return mc, true
+		}
+	}
+	lower := strings.ToLower(ref)
+	for uuid, mc := range sm.cameras {
+		if strings.Contains(strings.ToLower(uuid), lower) || strings.Contains(strings.ToLower(mc.Name), lower) {
+			return mc, true
+		}
+	}
+	for uuid, streamName := range sm.streamNames {
+		if strings.EqualFold(streamName, ref) {
+			if mc, ok := sm.cameras[uuid]; ok {
+				return mc, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// CameraSession returns the session of an enrolled camera, or nil when the
+// camera is not enrolled or has none.
+func (sm *StreamManager) CameraSession(uuid string) *CameraSession {
+	mc, ok := sm.GetCamera(uuid)
+	if !ok || mc == nil {
+		return nil
+	}
+	mc.mu.RLock()
+	defer mc.mu.RUnlock()
+	return mc.Session
+}
+
+// Sessions returns every enrolled camera's session, skipping cameras without one.
+func (sm *StreamManager) Sessions() []*CameraSession {
+	cams := sm.GetAllCameras()
+	out := make([]*CameraSession, 0, len(cams))
+	for _, mc := range cams {
+		mc.mu.RLock()
+		sess := mc.Session
+		mc.mu.RUnlock()
+		if sess != nil {
+			out = append(out, sess)
+		}
+	}
+	return out
 }
 
 // GetAllCameras returns a snapshot slice of all currently enrolled cameras.
@@ -1019,7 +1132,6 @@ func (sm *StreamManager) Unenroll(uuid string) bool {
 	if mc.CancelStream != nil {
 		mc.CancelStream()
 	}
-	unregisterCameraSession(uuid)
 	delete(sm.cameras, uuid)
 	return true
 }
@@ -1027,11 +1139,10 @@ func (sm *StreamManager) Unenroll(uuid string) bool {
 func (sm *StreamManager) CloseAll() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	for uuid, mc := range sm.cameras {
+	for _, mc := range sm.cameras {
 		if mc.CancelStream != nil {
 			mc.CancelStream()
 		}
-		unregisterCameraSession(uuid)
 	}
 	sm.cameras = make(map[string]*ManagedCamera)
 }
@@ -1041,7 +1152,7 @@ func (sm *StreamManager) CloseAll() {
 func (sm *StreamManager) StopStreaming() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	for uuid, mc := range sm.cameras {
+	for _, mc := range sm.cameras {
 		if mc.CancelStream != nil {
 			mc.CancelStream()
 			mc.CancelStream = nil
@@ -1051,7 +1162,6 @@ func (sm *StreamManager) StopStreaming() {
 		mc.Transport = "Stopped"
 		mc.Freshness = time.Now().UTC()
 		mc.mu.Unlock()
-		unregisterCameraSession(uuid)
 	}
 }
 
@@ -1066,17 +1176,15 @@ func (sm *StreamManager) StartStreaming() int {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		session := NewCameraSession(mc.UUID, mc.Name, sm.strictManual)
-		registerCameraSession(session)
 		mc.mu.Lock()
 		mc.Session = session
 		mc.Transport = "Starting"
 		mc.Freshness = time.Now().UTC()
-		dev := bridge.Device{UUID: mc.UUID, Name: mc.Name, Type: mc.Model}
 		rtpPort := mc.RTPPort
 		mc.mu.Unlock()
 		mc.CancelStream = cancel
 		if sm.runner != nil {
-			go sm.runner(ctx, mc, dev, rtpPort)
+			go sm.runner(ctx, mc, rtpPort)
 		}
 		started++
 	}
@@ -1116,6 +1224,18 @@ func lockoutCooldown(n int, maxWait time.Duration) time.Duration {
 	return d
 }
 
+// device is how the camera is described to the vendor bridge.
+func (mc *ManagedCamera) device() bridge.Device {
+	mc.mu.RLock()
+	defer mc.mu.RUnlock()
+	return bridge.Device{UUID: mc.UUID, Name: mc.Name, Type: mc.Model}
+}
+
+// deviceLocked is device for a caller already holding mc.mu.
+func (mc *ManagedCamera) deviceLocked() bridge.Device {
+	return bridge.Device{UUID: mc.UUID, Name: mc.Name, Type: mc.Model}
+}
+
 // SetRetryMaxWait sets the longest automatic retry wait (0 = default).
 func (sm *StreamManager) SetRetryMaxWait(d time.Duration) {
 	sm.mu.Lock()
@@ -1134,10 +1254,9 @@ func (sm *StreamManager) RetryMaxWait() time.Duration {
 }
 
 // defaultRunner implements the real camera stream loop with recovery budget and lockout handling.
-func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, dev bridge.Device, rtpPort int) {
+func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, rtpPort int) {
 	phoneCode := fmt.Sprintf("%032x", rand.Int63())
 	session := mc.Session
-	rtspURL := fmt.Sprintf("%s/%s", strings.TrimRight(sm.PublishRTSPBase(), "/"), dev.UUID)
 	lockouts := 0
 
 	for {
@@ -1153,13 +1272,13 @@ func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, d
 
 		if isLocked {
 			lockouts++
-			fmt.Printf("[%s] [LOCKOUT] recovery budget exhausted (3 attempts failed).\n", dev.Name)
+			fmt.Printf("[%s] [LOCKOUT] recovery budget exhausted (3 attempts failed).\n", mc.Name)
 			if session.IsStrictManual() {
-				fmt.Printf("[%s] [LOCKOUT] strict manual mode: waiting for an explicit retry from the UI / API.\n", dev.Name)
+				fmt.Printf("[%s] [LOCKOUT] strict manual mode: waiting for an explicit retry from the UI / API.\n", mc.Name)
 				if err := session.WaitUnlockContext(ctx); err != nil {
 					return
 				}
-				fmt.Printf("[%s] [LOCKOUT] explicit unlock received. Resetting budget and resuming stream...\n", dev.Name)
+				fmt.Printf("[%s] [LOCKOUT] explicit unlock received. Resetting budget and resuming stream...\n", mc.Name)
 			} else {
 				// Back off instead of stopping for good: a vendor-cloud hiccup or
 				// a PC waking from sleep must not leave the camera dark until
@@ -1167,21 +1286,21 @@ func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, d
 				// the controls, which ride this session, come back within
 				// minutes); "Retry now" skips the wait.
 				cooldown := lockoutCooldown(lockouts, sm.RetryMaxWait())
-				fmt.Printf("[%s] [LOCKOUT] retrying automatically in %v (or press Retry in the UI).\n", dev.Name, cooldown)
+				fmt.Printf("[%s] [LOCKOUT] retrying automatically in %v (or press Retry in the UI).\n", mc.Name, cooldown)
 				select {
 				case <-ctx.Done():
 					return
 				case <-session.unlockCh:
-					fmt.Printf("[%s] [LOCKOUT] retry requested. Resuming stream...\n", dev.Name)
+					fmt.Printf("[%s] [LOCKOUT] retry requested. Resuming stream...\n", mc.Name)
 				case <-time.After(cooldown):
 					session.Unlock()
 					<-session.unlockCh // drain the signal Unlock queued
-					fmt.Printf("[%s] [LOCKOUT] cooldown over. Resuming stream...\n", dev.Name)
+					fmt.Printf("[%s] [LOCKOUT] cooldown over. Resuming stream...\n", mc.Name)
 				}
 			}
 		}
 
-		c := sm.cloudForUUID(dev.UUID)
+		c := sm.cloudForUUID(mc.UUID)
 
 		if c == nil {
 			select {
@@ -1192,11 +1311,7 @@ func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, d
 			}
 		}
 
-		// Startup may pre-seed mc.IP from the profile while this loop runs.
-		mc.mu.RLock()
-		camIP := mc.IP
-		mc.mu.RUnlock()
-		err := sm.streamOnce(ctx, mc, c, phoneCode, dev, sm.ffmpegPath, rtspURL, rtpPort, camIP, session)
+		err := sm.streamOnce(ctx, mc, c, phoneCode, rtpPort)
 		if err != nil {
 			select {
 			case <-ctx.Done():
@@ -1204,18 +1319,18 @@ func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, d
 			default:
 			}
 			canRetry := session.RecordFailure()
-			if localControlTestActive.Load() {
+			if sm.LocalControlTest() {
 				session.mu.Lock()
 				session.State, session.RecoveryBudget = SessionStateLockout, 0
 				session.mu.Unlock()
 				canRetry = false
-				fmt.Printf("[%s] [LOCAL TEST] stream ended; waiting for manual restart: %v\n", dev.Name, err)
+				fmt.Printf("[%s] [LOCAL TEST] stream ended; waiting for manual restart: %v\n", mc.Name, err)
 			}
 			if canRetry {
 				session.mu.Lock()
 				rem := session.RecoveryBudget
 				session.mu.Unlock()
-				fmt.Printf("[%s] stream ended: %v (budget remaining: %d/3, restarting in 3s)...\n", dev.Name, err, rem)
+				fmt.Printf("[%s] stream ended: %v (budget remaining: %d/3, restarting in 3s)...\n", mc.Name, err, rem)
 				select {
 				case <-time.After(3 * time.Second):
 				case <-ctx.Done():
@@ -1230,7 +1345,7 @@ func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, d
 			}
 			session.RecordSuccess()
 			lockouts = 0
-			fmt.Printf("[%s] stream session ended cleanly (restarting in 2s)...\n", dev.Name)
+			fmt.Printf("[%s] stream session ended cleanly (restarting in 2s)...\n", mc.Name)
 			select {
 			case <-time.After(2 * time.Second):
 			case <-ctx.Done():
@@ -1241,8 +1356,14 @@ func (sm *StreamManager) defaultRunner(ctx context.Context, mc *ManagedCamera, d
 }
 
 // streamOnce establishes a single WebRTC media session and MediaMTX publication.
-func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *bridge.Cloud, phoneCode string, dev bridge.Device, ffmpeg, rtspURL string, rtpPort int, camIP string, session *CameraSession) error {
-	activeIP := camIP
+func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *bridge.Cloud, phoneCode string, rtpPort int) error {
+	session := mc.Session
+	dev := mc.device()
+	rtspURL := fmt.Sprintf("%s/%s", strings.TrimRight(sm.PublishRTSPBase(), "/"), dev.UUID)
+	// Startup may pre-seed mc.IP from the profile while the runner loop runs.
+	mc.mu.RLock()
+	activeIP := mc.IP
+	mc.mu.RUnlock()
 	var mediaConfirmed atomic.Bool
 	var severed atomic.Bool
 
@@ -1283,7 +1404,7 @@ func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *b
 	}
 
 	callID := strconv.FormatInt(1000000000000000+rand.Int63n(999999999999999), 10)
-	v, err := bridge.NewViewer(sig, vc, dev.UUID, dev.Type, callID, ffmpeg, rtspURL, rtpPort)
+	v, err := bridge.NewViewer(sig, vc, dev.UUID, dev.Type, callID, sm.ffmpegPath, rtspURL, rtpPort)
 	if err != nil {
 		_ = sig.Close()
 		return fmt.Errorf("viewer: %w", err)
@@ -1332,7 +1453,7 @@ func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *b
 		mc.mu.Lock()
 		mc.IP = ipStr
 		mc.mu.Unlock()
-		if pm := ActiveProfileManager(); pm != nil {
+		if pm := sm.ProfileManager(); pm != nil {
 			go func(camUUID string) {
 				// Skip when no profile exists (e.g. after "Delete all"): this
 				// write must never recreate the save file.
@@ -1407,7 +1528,7 @@ func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *b
 		// connection once LAN media flows. Normally it stays open: it carries
 		// the cloud-relayed controls. (The camera firewall is separate and
 		// lives on the router.)
-		if localControlTestActive.Load() {
+		if sm.LocalControlTest() {
 			if !severed.Swap(true) {
 				fmt.Printf("[%s] [LOCAL TEST] local media confirmed; closing BombeCam's signaling connection\n", dev.Name)
 				_ = sig.Close()
@@ -1417,12 +1538,7 @@ func (sm *StreamManager) streamOnce(ctx context.Context, mc *ManagedCamera, c *b
 		}
 	}
 
-	origOnMsg := v.OnMessage
-	sig.SetOnMsg(func(method string, data any) {
-		if origOnMsg != nil {
-			origOnMsg(method, data)
-		}
-	})
+	sig.SetOnMsg(v.OnMessage)
 
 	if err := v.Start(); err != nil {
 		return fmt.Errorf("start: %w", err)

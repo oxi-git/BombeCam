@@ -181,7 +181,7 @@ func resumeAfterChange(v *osaioValue, sm *SessionManager, stm *StreamManager) {
 			continue
 		}
 		email := session.Email()
-		password := savedPassword(email)
+		password := savedPassword(email, stm)
 		if email == "" || password == "" {
 			continue
 		}
@@ -190,7 +190,7 @@ func resumeAfterChange(v *osaioValue, sm *SessionManager, stm *StreamManager) {
 			fmt.Printf("[session] signing in %s after the %s change failed: %v\n", email, v.kind.Name, err)
 			continue
 		}
-		saveLoginToken(email, session.Cloud())
+		saveLoginToken(email, session.Cloud(), stm)
 	}
 }
 
@@ -211,7 +211,7 @@ func (v *osaioValue) handle(w http.ResponseWriter, r *http.Request, sm *SessionM
 		http.Error(w, "GET, POST or DELETE required", http.StatusMethodNotAllowed)
 		return
 	}
-	if !validateOperatorRequest(w, r) {
+	if !validateOperatorRequest(w, r, stm) {
 		return
 	}
 	if store == nil {

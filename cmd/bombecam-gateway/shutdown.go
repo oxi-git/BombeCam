@@ -26,13 +26,13 @@ var shutdownDelay = 300 * time.Millisecond
 // handleGatewayShutdown handles POST /api/v1/gateway/shutdown. Like the
 // Firewall routes it needs operator authentication unless the request comes
 // from this PC, and a browser session must send its CSRF token.
-func handleGatewayShutdown(w http.ResponseWriter, r *http.Request) {
+func handleGatewayShutdown(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return
 		}
 	}

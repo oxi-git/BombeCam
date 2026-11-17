@@ -65,7 +65,7 @@ func autostartInfo(r *http.Request) map[string]any {
 // handleAutostart serves GET/POST /api/v1/gateway/autostart {"enabled": bool}.
 // Changing it needs a request from this PC or operator authentication, and a
 // browser session must send its CSRF token.
-func handleAutostart(w http.ResponseWriter, r *http.Request) {
+func handleAutostart(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	switch r.Method {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, autostartInfo(r))
@@ -76,7 +76,7 @@ func handleAutostart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if om := GatewayOperatorManager(); om != nil {
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return
 		}
 	}

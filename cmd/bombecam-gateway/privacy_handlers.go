@@ -596,8 +596,8 @@ func orDefault(s, d string) string {
 // compatibility) POST /api/v1/privacy/router/check. It asks the active
 // backend for its status: the router over BombeCam's key, or bombecam-net on
 // the loopback API. Each answers in its own terms.
-func handlePrivacyCheck(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handlePrivacyCheck(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	pm, ok := privacyGuard(w, r, streamMgr)
 	if !ok {
 		return
 	}
@@ -617,8 +617,8 @@ func handlePrivacyCheck(w http.ResponseWriter, r *http.Request, streamMgr *Strea
 }
 
 // handleRouterCheck keeps the old name for callers and tests.
-func handleRouterCheck(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	handlePrivacyCheck(w, r, streamMgr, optPM...)
+func handleRouterCheck(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	handlePrivacyCheck(w, r, streamMgr)
 }
 
 func checkLocal(w http.ResponseWriter, r *http.Request, ctx context.Context, streamMgr *StreamManager, pm profile.ProfileManager) {
@@ -728,7 +728,7 @@ func privacyAutoSyncLoop(ctx context.Context, streamMgr *StreamManager) {
 			return
 		case <-t.C:
 		}
-		pm := ActiveProfileManager()
+		pm := streamMgr.ProfileManager()
 		if pm == nil {
 			continue
 		}
@@ -768,12 +768,12 @@ func privacyAutoSyncLoop(ctx context.Context, streamMgr *StreamManager) {
 }
 
 // handlePrivacyStatus handles GET /api/v1/privacy.
-func handlePrivacyStatus(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handlePrivacyStatus(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
 	}
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	writeJSON(w, http.StatusOK, privacyStatus(r.Context(), streamMgr, pm))
 }
 
@@ -1004,7 +1004,7 @@ func allowlistView(blockStreamSetup bool, region policy.Region) []map[string]any
 }
 
 // privacyGuard checks method, CSRF/session and profile for state changes.
-func privacyGuard(w http.ResponseWriter, r *http.Request, optPM []profile.ProfileManager) (profile.ProfileManager, bool) {
+func privacyGuard(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) (profile.ProfileManager, bool) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return nil, false
@@ -1012,11 +1012,11 @@ func privacyGuard(w http.ResponseWriter, r *http.Request, optPM []profile.Profil
 	if om := GatewayOperatorManager(); om != nil {
 		// See signInRequired: other devices (and this PC, if the administrator
 		// chose so) need a signed-in session or API token.
-		if !om.ValidateSecurityBoundary(w, r, signInRequired(r)) {
+		if !om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr)) {
 			return nil, false
 		}
 	}
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	if pm == nil || pm.GetProfile() == nil {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "not_configured", "message": "Sign in and connect your cameras first."})
 		return nil, false
@@ -1038,9 +1038,9 @@ func isLoopbackRequest(r *http.Request) bool {
 // (this PC, unless the administrator asked for sign-in here too) or comes
 // from a signed-in administrator. A visitor cookie and CSRF token only
 // establish a browser boundary, not permission to operate the gateway.
-func validateOperatorRequest(w http.ResponseWriter, r *http.Request) bool {
+func validateOperatorRequest(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) bool {
 	om := GatewayOperatorManager()
-	return om == nil || om.ValidateSecurityBoundary(w, r, signInRequired(r))
+	return om == nil || om.ValidateSecurityBoundary(w, r, signInRequired(r, streamMgr))
 }
 
 // changeTimeout bounds a router update made on behalf of a click.
@@ -1048,8 +1048,8 @@ const changeTimeout = 90 * time.Second
 
 // handlePrivacyCamera handles POST /api/v1/privacy/camera
 // {"camera_id": "...", "blocked": true|false}.
-func handlePrivacyCamera(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handlePrivacyCamera(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	pm, ok := privacyGuard(w, r, streamMgr)
 	if !ok {
 		return
 	}
@@ -1083,8 +1083,8 @@ func handlePrivacyCamera(w http.ResponseWriter, r *http.Request, streamMgr *Stre
 
 // handlePrivacyBlockAll handles POST /api/v1/privacy/block-all
 // {"blocked": true|false}: every camera, and cameras added later.
-func handlePrivacyBlockAll(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handlePrivacyBlockAll(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	pm, ok := privacyGuard(w, r, streamMgr)
 	if !ok {
 		return
 	}
@@ -1289,8 +1289,8 @@ func applyOverPassword(ctx context.Context, streamMgr *StreamManager, pm profile
 
 // handleRouterConnect handles POST /api/v1/privacy/router/connect
 // {"router_address", "router_user", "router_password"}.
-func handleRouterConnect(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handleRouterConnect(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	pm, ok := privacyGuard(w, r, streamMgr)
 	if !ok {
 		return
 	}
@@ -1313,8 +1313,8 @@ func handleRouterConnect(w http.ResponseWriter, r *http.Request, streamMgr *Stre
 // handleRouterDisconnect handles POST /api/v1/privacy/router/disconnect: it
 // removes everything BombeCam put on the router (rules and key) over the key,
 // then forgets the router and sets every camera to not blocked.
-func handleRouterDisconnect(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handleRouterDisconnect(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	pm, ok := privacyGuard(w, r, streamMgr)
 	if !ok {
 		return
 	}
@@ -1390,8 +1390,8 @@ func forgetRouter(ctx context.Context, pm profile.ProfileManager, unblock bool) 
 // handlePrivacyForgetRouter handles POST /api/v1/privacy/forget-router: after a
 // router reset or replacement, forget its address, identity and BombeCam's key
 // without contacting it. The per-camera choices are kept.
-func handlePrivacyForgetRouter(w http.ResponseWriter, r *http.Request, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handlePrivacyForgetRouter(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	pm, ok := privacyGuard(w, r, streamMgr)
 	if !ok {
 		return
 	}
@@ -1405,8 +1405,8 @@ func handlePrivacyForgetRouter(w http.ResponseWriter, r *http.Request, optPM ...
 // {"backend": "router"|"local"}: save the choice and apply the current
 // per-camera choices to it. The choice is saved before the first apply, so an
 // unreachable local daemon leaves "local" chosen for the next try.
-func handlePrivacyBackend(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handlePrivacyBackend(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	pm, ok := privacyGuard(w, r, streamMgr)
 	if !ok {
 		return
 	}
@@ -1437,8 +1437,8 @@ func handlePrivacyBackend(w http.ResponseWriter, r *http.Request, streamMgr *Str
 // {"region": "us"|"eu"}: save the Osaio region and apply it to the active
 // backend. The region is a setting of its own (not tied to connecting a
 // router), because a local bombecam-net needs it too.
-func handlePrivacyRegion(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handlePrivacyRegion(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	pm, ok := privacyGuard(w, r, streamMgr)
 	if !ok {
 		return
 	}
@@ -1476,8 +1476,8 @@ type privacyApplyRequest struct {
 // handlePrivacyApply handles POST /api/v1/privacy/apply (single-step form):
 // set every camera to blocked or not, connect the router with the password,
 // and apply.
-func handlePrivacyApply(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
-	pm, ok := privacyGuard(w, r, optPM)
+func handlePrivacyApply(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	pm, ok := privacyGuard(w, r, streamMgr)
 	if !ok {
 		return
 	}

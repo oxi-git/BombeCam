@@ -1384,10 +1384,6 @@ func (v *Viewer) WriteAudioFrame(frame []byte) error {
 	return v.audioTrack.WriteRTP(pkt)
 }
 
-func (v *Viewer) onMessage(method string, data any) {
-	v.OnMessage(method, data)
-}
-
 // readSenderReports passes the camera's RTCP sender reports for one track to
 // the publisher.
 func readSenderReports(rc *webrtc.RTPReceiver, ssrc, clock uint32, kind int, sink *nativeSink) {

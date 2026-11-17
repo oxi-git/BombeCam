@@ -152,17 +152,11 @@ func (s *snapshotService) refresh(cameraID, ffmpeg, src string, done chan struct
 // resolveSnapshotCamera accepts a camera ID or its stream name.
 func resolveSnapshotCamera(sm *StreamManager, id string) (string, bool) {
 	id = strings.TrimSuffix(id, ".jpg")
-	if _, ok := sm.GetCamera(id); ok {
-		return id, true
+	mc, ok := sm.ResolveCamera(id)
+	if !ok {
+		return "", false
 	}
-	for cid, name := range sm.StreamNames() {
-		if name == id {
-			if _, ok := sm.GetCamera(cid); ok {
-				return cid, true
-			}
-		}
-	}
-	return "", false
+	return mc.UUID, true
 }
 
 // handleSnapshot serves GET /api/v1/cameras/{id}/snapshot.jpg.

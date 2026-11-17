@@ -62,8 +62,8 @@ func accountStatus(sm *SessionManager, found, hasPassword bool) (string, string)
 }
 
 // handleAccountsList handles GET /api/v1/accounts.
-func handleAccountsList(w http.ResponseWriter, r *http.Request, optPM ...profile.ProfileManager) {
-	if !validateOperatorRequest(w, r) {
+func handleAccountsList(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
+	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -72,7 +72,7 @@ func handleAccountsList(w http.ResponseWriter, r *http.Request, optPM ...profile
 	}
 	out := []accountView{}
 	attention := 0
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	var prof *profile.Profile
 	if pm != nil {
 		prof = pm.GetProfile()
@@ -178,12 +178,12 @@ func signInToPool(ctx context.Context, reg *SessionRegistry, pm profile.ProfileM
 // handleAccountSignIn handles POST /api/v1/accounts/signin {email, password,
 // country}: adds a login to the pool, or saves a new password for one already
 // in it.
-func handleAccountSignIn(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleAccountSignIn(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if !validateOperatorRequest(w, r) {
+	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 	var req accountRequest
@@ -197,7 +197,7 @@ func handleAccountSignIn(w http.ResponseWriter, r *http.Request, sessionMgr *Ses
 		return
 	}
 	reg := sessionsFor(sessionMgr)
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	var saved *profile.Profile
 	if pm != nil {
 		saved = pm.GetProfile()
@@ -233,12 +233,12 @@ func countrySession(reg *SessionRegistry, email string) *SessionManager {
 // handleAccountCameras handles POST /api/v1/accounts/cameras {email}: the
 // cameras a stored login can see, so more of them can be added without
 // typing its password again.
-func handleAccountCameras(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleAccountCameras(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if !validateOperatorRequest(w, r) {
+	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 	var req accountRequest
@@ -263,7 +263,7 @@ func handleAccountCameras(w http.ResponseWriter, r *http.Request, streamMgr *Str
 		return
 	}
 	enrolled := map[string]bool{}
-	if pm := getEffectivePM(optPM...); pm != nil {
+	if pm := streamMgr.ProfileManager(); pm != nil {
 		if prof := pm.GetProfile(); prof != nil {
 			for id := range prof.Cameras {
 				enrolled[id] = true
@@ -286,12 +286,12 @@ func handleAccountCameras(w http.ResponseWriter, r *http.Request, streamMgr *Str
 // login and removes the cameras added through it (their streams stop, and
 // the router stops limiting them if it did). Other logins and their cameras
 // are not touched.
-func handleAccountRemove(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleAccountRemove(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if !validateOperatorRequest(w, r) {
+	if !validateOperatorRequest(w, r, streamMgr) {
 		return
 	}
 	var req accountRequest
@@ -300,7 +300,7 @@ func handleAccountRemove(w http.ResponseWriter, r *http.Request, sessionMgr *Ses
 		return
 	}
 	email := profile.NormalizeEmail(req.Email)
-	pm := getEffectivePM(optPM...)
+	pm := streamMgr.ProfileManager()
 	if pm == nil || pm.GetProfile() == nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not_found", "message": "That login isn't stored on this computer."})
 		return

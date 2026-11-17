@@ -36,7 +36,8 @@ func renewCloudLogin(old *bridge.Cloud) *bridge.Cloud {
 	if sm == nil || email == "" {
 		return nil
 	}
-	password := savedPassword(email)
+	mgr := currentStreamManager()
+	password := savedPassword(email, mgr)
 	if password == "" {
 		fmt.Printf("[session] the Osaio sign-in for %s seems to have expired; no saved password to sign in again (sign in on the page)\n", email)
 		return nil
@@ -60,7 +61,7 @@ func renewCloudLogin(old *bridge.Cloud) *bridge.Cloud {
 	renewedClouds[old] = nc
 	renewMu.Unlock()
 	sm.SetCloud(nc)
-	saveLoginToken(email, nc)
+	saveLoginToken(email, nc, mgr)
 	fmt.Printf("[session] signed in again (UID: %s)\n", nc.UID)
 	return nc
 }
@@ -87,8 +88,8 @@ func sessionForCloud(c *bridge.Cloud) (*SessionManager, string) {
 }
 
 // savedPassword returns the stored password for a login ("" if none).
-func savedPassword(email string) string {
-	pm := ActiveProfileManager()
+func savedPassword(email string, sm *StreamManager) string {
+	pm := sm.ProfileManager()
 	if pm == nil {
 		return ""
 	}
@@ -103,8 +104,8 @@ func savedPassword(email string) string {
 }
 
 // saveLoginToken keeps a login's new sign-in for the next start.
-func saveLoginToken(email string, c *bridge.Cloud) {
-	pm := ActiveProfileManager()
+func saveLoginToken(email string, c *bridge.Cloud, sm *StreamManager) {
+	pm := sm.ProfileManager()
 	if pm == nil || c == nil {
 		return
 	}

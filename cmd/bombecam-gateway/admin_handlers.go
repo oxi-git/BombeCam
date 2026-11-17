@@ -28,11 +28,11 @@ import (
 // always from other devices, and on this PC when the administrator chose so.
 // Until an administrator exists, this PC needs no sign-in (it is where the
 // administrator is created) and other devices cannot get in.
-func signInRequired(r *http.Request) bool {
+func signInRequired(r *http.Request, streamMgr *StreamManager) bool {
 	if !isLoopbackRequest(r) {
 		return true
 	}
-	prof := activeProfile()
+	prof := activeProfile(streamMgr)
 	if prof == nil {
 		return false
 	}
@@ -40,8 +40,11 @@ func signInRequired(r *http.Request) bool {
 	return hasAdmin && prof.Security.RequireLocalSignIn
 }
 
-func activeProfile() *profile.Profile {
-	if pm := ActiveProfileManager(); pm != nil {
+func activeProfile(streamMgr *StreamManager) *profile.Profile {
+	if streamMgr == nil {
+		return nil
+	}
+	if pm := streamMgr.ProfileManager(); pm != nil {
 		return pm.GetProfile()
 	}
 	return nil
@@ -147,8 +150,8 @@ func startAdminSession(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return sess.CSRFToken, true
 }
 
-func adminProfileManager(w http.ResponseWriter) (profile.ProfileManager, bool) {
-	pm := ActiveProfileManager()
+func adminProfileManager(w http.ResponseWriter, streamMgr *StreamManager) (profile.ProfileManager, bool) {
+	pm := streamMgr.ProfileManager()
 	if pm == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "profile_unavailable", "message": "BombeCam's saved data can't be opened."})
 		return nil, false
@@ -158,26 +161,26 @@ func adminProfileManager(w http.ResponseWriter) (profile.ProfileManager, bool) {
 
 // handleAdminStatus handles GET /api/v1/admin/status: what the page needs
 // to decide between creating the administrator, signing in, or carrying on.
-func handleAdminStatus(w http.ResponseWriter, r *http.Request) {
+func handleAdminStatus(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
 	}
-	prof := activeProfile()
+	prof := activeProfile(streamMgr)
 	admin, exists := prof.Admin()
 	in := requestSignedIn(r)
 	resp := map[string]any{
 		"admin_exists":       exists,
 		"this_pc":            isLoopbackRequest(r),
 		"signed_in":          in,
-		"sign_in_required":   signInRequired(r),
+		"sign_in_required":   signInRequired(r, streamMgr),
 		"can_create":         !exists && isLoopbackRequest(r),
 		"min_password_chars": auth.MinPasswordLength,
 	}
 	// A saved profile that can't be opened (lost key, damaged file): this PC
 	// can only start again with Delete all.
 	if prof == nil && isLoopbackRequest(r) {
-		if pm := ActiveProfileManager(); pm != nil {
+		if pm := streamMgr.ProfileManager(); pm != nil {
 			if has, _ := pm.HasProfile(r.Context()); has {
 				if _, err := pm.Load(r.Context()); err != nil {
 					resp["profile_unreadable"] = true
@@ -190,7 +193,7 @@ func handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	if exists && isLoopbackRequest(r) && admin.PasswordHint != "" {
 		resp["password_hint"] = admin.PasswordHint
 	}
-	if exists && (in || !signInRequired(r)) {
+	if exists && (in || !signInRequired(r, streamMgr)) {
 		resp["has_password_hint"] = admin.PasswordHint != ""
 		resp["name"] = admin.Name
 		resp["require_local_sign_in"] = prof.Security.RequireLocalSignIn
@@ -203,7 +206,7 @@ func handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 // handleAdminSetup handles POST /api/v1/admin/setup {name, password,
 // require_local_sign_in}: creates the administrator. Only on this PC, and
 // only while there is none.
-func handleAdminSetup(w http.ResponseWriter, r *http.Request) {
+func handleAdminSetup(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	req, ok := decodeAdminRequest(w, r)
 	if !ok {
 		return
@@ -212,7 +215,7 @@ func handleAdminSetup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "this_pc_only", "message": "Create the administrator on the PC running BombeCam."})
 		return
 	}
-	pm, ok := adminProfileManager(w)
+	pm, ok := adminProfileManager(w, streamMgr)
 	if !ok {
 		return
 	}
@@ -306,12 +309,12 @@ func verifyAdmin(w http.ResponseWriter, r *http.Request, pm profile.ProfileManag
 }
 
 // handleAdminSignIn handles POST /api/v1/admin/signin {name, password, code}.
-func handleAdminSignIn(w http.ResponseWriter, r *http.Request) {
+func handleAdminSignIn(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	req, ok := decodeAdminRequest(w, r)
 	if !ok {
 		return
 	}
-	pm, ok := adminProfileManager(w)
+	pm, ok := adminProfileManager(w, streamMgr)
 	if !ok {
 		return
 	}
@@ -346,7 +349,7 @@ func handleAdminSignIn(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAdminSignOut handles POST /api/v1/admin/signout.
-func handleAdminSignOut(w http.ResponseWriter, r *http.Request) {
+func handleAdminSignOut(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
@@ -362,12 +365,12 @@ func handleAdminSignOut(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminPassword handles POST /api/v1/admin/password {password,
 // new_password}. Every other signed-in browser is signed out.
-func handleAdminPassword(w http.ResponseWriter, r *http.Request) {
+func handleAdminPassword(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	req, ok := decodeAdminRequest(w, r)
 	if !ok {
 		return
 	}
-	pm, ok := adminProfileManager(w)
+	pm, ok := adminProfileManager(w, streamMgr)
 	if !ok {
 		return
 	}
@@ -405,12 +408,12 @@ func handleAdminPassword(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminLocalSignIn handles POST /api/v1/admin/local-sign-in
 // {password, require_local_sign_in}.
-func handleAdminLocalSignIn(w http.ResponseWriter, r *http.Request) {
+func handleAdminLocalSignIn(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	req, ok := decodeAdminRequest(w, r)
 	if !ok {
 		return
 	}
-	pm, ok := adminProfileManager(w)
+	pm, ok := adminProfileManager(w, streamMgr)
 	if !ok {
 		return
 	}
@@ -439,12 +442,12 @@ func handleAdminLocalSignIn(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminHint handles POST /api/v1/admin/hint {password, hint}: sets or
 // clears (empty) the password hint.
-func handleAdminHint(w http.ResponseWriter, r *http.Request) {
+func handleAdminHint(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	req, ok := decodeAdminRequest(w, r)
 	if !ok {
 		return
 	}
-	pm, ok := adminProfileManager(w)
+	pm, ok := adminProfileManager(w, streamMgr)
 	if !ok {
 		return
 	}
@@ -481,12 +484,12 @@ var pendingTOTP struct {
 
 // handleAdminTwoStepStart handles POST /api/v1/admin/two-step/start
 // {password}: a new secret, as text and as a QR code for the app.
-func handleAdminTwoStepStart(w http.ResponseWriter, r *http.Request) {
+func handleAdminTwoStepStart(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	req, ok := decodeAdminRequest(w, r)
 	if !ok {
 		return
 	}
-	pm, ok := adminProfileManager(w)
+	pm, ok := adminProfileManager(w, streamMgr)
 	if !ok {
 		return
 	}
@@ -514,12 +517,12 @@ func handleAdminTwoStepStart(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminTwoStepConfirm handles POST /api/v1/admin/two-step/confirm
 // {code}: turns two-step on and returns the recovery codes (shown once).
-func handleAdminTwoStepConfirm(w http.ResponseWriter, r *http.Request) {
+func handleAdminTwoStepConfirm(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	req, ok := decodeAdminRequest(w, r)
 	if !ok {
 		return
 	}
-	pm, ok := adminProfileManager(w)
+	pm, ok := adminProfileManager(w, streamMgr)
 	if !ok {
 		return
 	}
@@ -563,12 +566,12 @@ func handleAdminTwoStepConfirm(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminTwoStepDisable handles POST /api/v1/admin/two-step/disable
 // {password, code}.
-func handleAdminTwoStepDisable(w http.ResponseWriter, r *http.Request) {
+func handleAdminTwoStepDisable(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	req, ok := decodeAdminRequest(w, r)
 	if !ok {
 		return
 	}
-	pm, ok := adminProfileManager(w)
+	pm, ok := adminProfileManager(w, streamMgr)
 	if !ok {
 		return
 	}
@@ -599,12 +602,12 @@ func handleAdminTwoStepDisable(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminRecoveryCodes handles POST /api/v1/admin/recovery-codes
 // {password}: a new set, replacing the old one.
-func handleAdminRecoveryCodes(w http.ResponseWriter, r *http.Request) {
+func handleAdminRecoveryCodes(w http.ResponseWriter, r *http.Request, streamMgr *StreamManager) {
 	req, ok := decodeAdminRequest(w, r)
 	if !ok {
 		return
 	}
-	pm, ok := adminProfileManager(w)
+	pm, ok := adminProfileManager(w, streamMgr)
 	if !ok {
 		return
 	}
@@ -682,7 +685,7 @@ var startOverShutdown = func() {
 // BombeCam down. The next start begins from scratch. Only on the PC running
 // BombeCam, which needs no password for it: whoever sits there could delete
 // the file anyway. Other devices have no way to do this.
-func handleAdminStartOver(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager, optPM ...profile.ProfileManager) {
+func handleAdminStartOver(w http.ResponseWriter, r *http.Request, sessionMgr *SessionManager, streamMgr *StreamManager) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
@@ -691,7 +694,7 @@ func handleAdminStartOver(w http.ResponseWriter, r *http.Request, sessionMgr *Se
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "this_pc_only", "message": "Only the PC running BombeCam can start it over."})
 		return
 	}
-	resp := resetStoredInformation(r.Context(), sessionMgr, streamMgr, getEffectivePM(optPM...), false)
+	resp := resetStoredInformation(r.Context(), sessionMgr, streamMgr, streamMgr.ProfileManager(), false)
 	if om := GatewayOperatorManager(); om != nil {
 		om.RevokeOperatorSessions()
 		om.ClearSessionCookie(w)
@@ -703,16 +706,38 @@ func handleAdminStartOver(w http.ResponseWriter, r *http.Request, sessionMgr *Se
 }
 
 // registerAdminRoutes adds the administrator endpoints.
-func registerAdminRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/v1/admin/status", handleAdminStatus)
-	mux.HandleFunc("/api/v1/admin/setup", handleAdminSetup)
-	mux.HandleFunc("/api/v1/admin/signin", handleAdminSignIn)
-	mux.HandleFunc("/api/v1/admin/signout", handleAdminSignOut)
-	mux.HandleFunc("/api/v1/admin/password", handleAdminPassword)
-	mux.HandleFunc("/api/v1/admin/local-sign-in", handleAdminLocalSignIn)
-	mux.HandleFunc("/api/v1/admin/hint", handleAdminHint)
-	mux.HandleFunc("/api/v1/admin/two-step/start", handleAdminTwoStepStart)
-	mux.HandleFunc("/api/v1/admin/two-step/confirm", handleAdminTwoStepConfirm)
-	mux.HandleFunc("/api/v1/admin/two-step/disable", handleAdminTwoStepDisable)
-	mux.HandleFunc("/api/v1/admin/recovery-codes", handleAdminRecoveryCodes)
+func registerAdminRoutes(mux *http.ServeMux, streamMgr *StreamManager) {
+	mux.HandleFunc("/api/v1/admin/status", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminStatus(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/setup", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminSetup(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/signin", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminSignIn(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/signout", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminSignOut(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/password", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminPassword(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/local-sign-in", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminLocalSignIn(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/hint", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminHint(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/two-step/start", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminTwoStepStart(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/two-step/confirm", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminTwoStepConfirm(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/two-step/disable", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminTwoStepDisable(w, r, streamMgr)
+	})
+	mux.HandleFunc("/api/v1/admin/recovery-codes", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminRecoveryCodes(w, r, streamMgr)
+	})
 }
