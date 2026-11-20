@@ -75,6 +75,9 @@ jobs:
   build:
     runs-on: ${{ matrix.runs_on }}
     needs: assemble
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
