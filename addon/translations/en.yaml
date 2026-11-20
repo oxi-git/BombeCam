@@ -1,7 +1,7 @@
 repository:
   bombe_cam_addon:
     name: BombeCam Add-ons
-    url: https://github.com/Fever-r/BombeCam
+    url: https://github.com/oxi-git/BombeCam
 configuration:
   admin_name:
     name: Administrator name

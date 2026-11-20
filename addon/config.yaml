@@ -2,7 +2,7 @@ name: BombeCam
 version: "1.0.0"
 slug: bombecam
 description: BombeCam gateway with MediaMTX, local recording and the Home Assistant bridge
-url: https://github.com/Fever-r/BombeCam/tree/main/addon
+url: https://github.com/oxi-git/BombeCam/blob/main/addon/DOCS.md
 arch:
   - amd64
   - aarch64
