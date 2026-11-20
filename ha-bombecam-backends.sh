@@ -438,16 +438,31 @@ wait_logs() { # container pattern
 	i=0
 	until docker logs "$1" 2>&1 | grep -q "$2"; do
 		i=$((i + 1))
-		[ "$i" -lt 60 ] || return 1
+		# 150 s: su un hardware lento il bind del listener arriva solo dopo
+		# l'inizializzazione del profilo, non entro la vecchia finestra di 60 s.
+		[ "$i" -lt 150 ] || return 1
 		sleep 1
 	done
 }
 
-wait_logs "$GW_CONTAINER" 'Gateway\|listening\|8654' || {
-	warn "log gateway:"
-	docker logs --tail 40 "$GW_CONTAINER" || true
-	die "il gateway non è partito."
-}
+# Una risposta dall'API vale quanto la riga dei log: se il bind arriva tardi
+# o la riga non è apparsa ancora in docker logs, questo conferma il gateway.
+if ! wait_logs "$GW_CONTAINER" 'Gateway\|listening\|8654'; then
+	warn "la riga dei log del gateway non è arrivata in tempo; provo l'API"
+	up=no
+	for _ in $(seq 1 30); do
+		if docker exec "$GW_CONTAINER" 			wget -sSO- --timeout=2 http://127.0.0.1:8654/api/v1/onboarding/status 2>/dev/null | grep -q .; then
+			up=yes
+			break
+		fi
+		sleep 1
+	done
+	[ "$up" = yes ] || {
+		warn "log gateway:"
+		docker logs --tail 40 "$GW_CONTAINER" || true
+		die "il gateway non è partito."
+	}
+fi
 ok "gateway in esecuzione"
 
 # --- 6. verifica API demone --------------------------------------------------
